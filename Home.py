@@ -30,6 +30,7 @@ def safe_read_excel(file_path, sheet_name):
         st.error(f"Error reading Excel file: {e}")
         return pd.DataFrame()
 
+@st.cache_data(ttl=5, show_spinner=False)
 def load_users():
     """Load users from Excel file"""
     excel_path = Path(__file__).parent / "TimeSheet Apps.xlsx"
@@ -148,13 +149,6 @@ else:
     user_type = st.session_state.get("user_type", "User")
     st.write(f"Welcome to the PTW Timesheet Management System, {user_type}!")
 
-    # Check if Excel file exists
-    excel_path = Path(__file__).parent / "TimeSheet Apps.xlsx"
-    if excel_path.exists():
-        st.success("✅ TimeSheet Apps.xlsx found and ready to use")
-    else:
-        st.warning("⚠️ TimeSheet Apps.xlsx not found")
-        st.info("Please ensure the Excel file is uploaded to your repository")
 
     # Navigation instructions based on user type
     st.markdown("---")

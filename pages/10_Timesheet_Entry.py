@@ -33,7 +33,7 @@ st.sidebar.info(f"Signed in as: {user}")
 
 XLSX = Path(__file__).resolve().parent.parent / "TimeSheet Apps.xlsx"
 
-@st.cache_data(ttl=10, show_spinner=False)
+@st.cache_data(ttl=5, show_spinner=False)
 def safe_read_excel_cached(file_path, sheet_name, _file_mtime=None):
     """Cached version of safe_read_excel with shorter TTL for performance"""
     return _safe_read_excel_internal(file_path, sheet_name)
@@ -86,7 +86,7 @@ def safe_read_excel(file_path, sheet_name):
             st.error(f"Error accessing Excel file: {e}")
         return pd.DataFrame()
 
-@st.cache_data(ttl=10, show_spinner=False)
+@st.cache_data(ttl=5, show_spinner=False)
 def get_time_data_cached(_file_path, _date_filter=None):
     """Cached time data retrieval with optional date filtering"""
     try:
@@ -374,14 +374,6 @@ if st.button("Add line", type="primary", disabled=add_disabled):
                 st.success(f"Added {len(new_rows)} line(s) to Time Data sheet.")
                 safe_read_excel_cached.clear()
                 get_time_data_cached.clear()
-
-                # Clear form fields after successful submission
-                st.session_state.selected_employees = []
-                st.session_state.job_choice = None
-                st.session_state.cost_choice = None
-                st.session_state.rt_hours = 0.0
-                st.session_state.ot_hours = 0.0
-                st.session_state.comments = ""
 
                 st.rerun()
             else:
