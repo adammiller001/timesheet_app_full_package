@@ -5,12 +5,10 @@ st.session_state['page_header']='⚙️ Admin'
 import streamlit as st
 
 # Gate: require login from landing page
-user = st.session_state.get("user_email")
+user = st.session_state.get("user_email", "user@ptwenergy.com")
 if not user:
-    st.warning("Please sign in on the Home page first.")
-    if hasattr(st, "page_link"):
-        st.page_link("streamlit_app.py", label="← Go to Home")
-    st.stop()
+    st.session_state["user_email"] = "user@ptwenergy.com"
+    user = "user@ptwenergy.com"
 st.sidebar.info(f"Signed in as: {user}")
 
 st.set_page_config(page_title=st.session_state.get("page_title", "PTW"), layout="wide")

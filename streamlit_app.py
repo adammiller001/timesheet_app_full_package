@@ -17,7 +17,7 @@ st.title("📊 PTW - Daily Timesheet Suite")
 st.write("Welcome to the PTW Timesheet Management System!")
 
 # Check if Excel file exists
-excel_path = Path(__file__).parent / "Timesheet Apps.xlsx"
+excel_path = Path(__file__).parent / "TimeSheet Apps.xlsx"
 if excel_path.exists():
     st.success("✅ Timesheet Apps.xlsx found and ready to use")
 else:

@@ -23,7 +23,7 @@ try:
 except Exception:
     HAVE_UTILS = False
 
-XLSX = Path(__file__).resolve().parent.parent / "Timesheet Apps.xlsx"
+XLSX = Path(__file__).resolve().parent.parent / "TimeSheet Apps.xlsx"
 
 @st.cache_data(ttl=10, show_spinner=False)
 def safe_read_excel_cached(file_path, sheet_name, _file_mtime=None):
