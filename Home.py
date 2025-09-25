@@ -53,6 +53,12 @@ def authenticate_user(email):
     if users_df.empty:
         return False, "User", "No users found in worksheet"
 
+    # DEBUG: Show what's actually in the Users worksheet
+    st.info(f"DEBUG: Found {len(users_df)} users in worksheet")
+    st.info(f"DEBUG: Available columns: {list(users_df.columns)}")
+    if not users_df.empty:
+        st.info(f"DEBUG: All emails in worksheet: {users_df.iloc[:, 0].tolist()}")  # Show first column values
+
     # Look for email in various possible column names
     email_columns = ["Email", "User Email", "Email Address", "Login Email", "User's Email Address"]
     email_col = None
@@ -65,10 +71,14 @@ def authenticate_user(email):
     if not email_col:
         return False, "User", f"Email column not found. Available columns: {list(users_df.columns)}"
 
+    st.info(f"DEBUG: Using email column: {email_col}")
+    st.info(f"DEBUG: Looking for email: '{email}'")
+
     # Check if email exists
     user_row = users_df[users_df[email_col].astype(str).str.lower() == email.lower()]
     if user_row.empty:
-        return False, "User", "Email not found in users list"
+        all_emails = users_df[email_col].astype(str).str.lower().tolist()
+        return False, "User", f"Email '{email}' not found. Available emails: {all_emails}"
 
     # Check user type (Admin or User)
     user_type = "User"  # Default
