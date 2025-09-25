@@ -124,7 +124,17 @@ def save_to_excel_optimized(new_rows):
             try:
                 with pd.ExcelWriter(XLSX, mode='a', if_sheet_exists='replace', engine='openpyxl') as writer:
                     final_data.to_excel(writer, sheet_name='Time Data', index=False)
-                return True
+                # Verify the save worked by checking if we can read it back
+                try:
+                    verification = pd.read_excel(XLSX, sheet_name="Time Data")
+                    if len(verification) >= len(final_data):
+                        return True
+                    else:
+                        st.warning("Save appeared successful but data verification failed")
+                        return False
+                except Exception:
+                    st.warning("Save appeared successful but could not verify")
+                    return True
             except PermissionError:
                 if attempt < max_attempts - 1:
                     st.warning(f"Excel file is locked. Retrying... (attempt {attempt + 1})")
@@ -152,6 +162,10 @@ st.markdown("### Timesheet Entry")
 
 # --- Date ---
 date_val = st.date_input("Date", value=pd.Timestamp.today().date(), format="YYYY/MM/DD", key="date_val")
+
+# Form reset mechanism
+if "form_counter" not in st.session_state:
+    st.session_state.form_counter = 0
 
 # --- Helper functions ---
 def _find_col(df: pd.DataFrame, candidates):
@@ -214,7 +228,7 @@ job_choice = st.selectbox(
     job_options,
     index=None,
     placeholder="Select a job...",
-    key="job_choice"
+    key=f"job_choice_{st.session_state.form_counter}"
 )
 
 # --- Cost Codes ---
@@ -252,7 +266,7 @@ cost_choice = st.selectbox(
     cost_options,
     index=None,
     placeholder="Select a cost code...",
-    key="cost_choice"
+    key=f"cost_choice_{st.session_state.form_counter}"
 )
 
 st.divider()
@@ -282,7 +296,7 @@ selected_employees = st.multiselect(
     options=_employee_options,
     default=[],
     placeholder="Select one or more employees...",
-    key="selected_employees"
+    key=f"selected_employees_{st.session_state.form_counter}"
 )
 
 def night_flag_for(_name: str) -> str:
@@ -301,13 +315,13 @@ def night_flag_for(_name: str) -> str:
 # --- Hours Input ---
 cols = st.columns(3)
 with cols[0]:
-    rt_hours = st.number_input("RT Hours", min_value=0.00, step=0.25, format="%.2f", value=0.00, key="rt_hours")
+    rt_hours = st.number_input("RT Hours", min_value=0.00, step=0.25, format="%.2f", value=0.00, key=f"rt_hours_{st.session_state.form_counter}")
 with cols[1]:
-    ot_hours = st.number_input("OT Hours", min_value=0.00, step=0.25, format="%.2f", value=0.00, key="ot_hours")
+    ot_hours = st.number_input("OT Hours", min_value=0.00, step=0.25, format="%.2f", value=0.00, key=f"ot_hours_{st.session_state.form_counter}")
 with cols[2]:
     st.write("")
 
-comments = st.text_input("Comments", value="", key="comments")
+comments = st.text_input("Comments", value="", key=f"comments_{st.session_state.form_counter}")
 
 def _parse_job(choice: str):
     """Parse job choice into job number, area, and description"""
@@ -374,6 +388,9 @@ if st.button("Add line", type="primary", disabled=add_disabled):
                 st.success(f"Added {len(new_rows)} line(s) to Time Data sheet.")
                 safe_read_excel_cached.clear()
                 get_time_data_cached.clear()
+
+                # Clear form by incrementing counter (changes all widget keys)
+                st.session_state.form_counter += 1
 
                 st.rerun()
             else:

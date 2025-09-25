@@ -100,11 +100,9 @@ if not st.session_state.get("authenticated", False):
     st.title("🔐 PTW - Daily Timesheet Suite")
     st.markdown("### Please sign in with your work email")
 
-    # Check if Excel file exists
+    # Check if Excel file exists (silently)
     excel_path = Path(__file__).parent / "TimeSheet Apps.xlsx"
-    if excel_path.exists():
-        st.info("✅ TimeSheet Apps.xlsx found")
-    else:
+    if not excel_path.exists():
         st.error("⚠️ TimeSheet Apps.xlsx not found - Please contact your administrator")
         st.stop()
 
