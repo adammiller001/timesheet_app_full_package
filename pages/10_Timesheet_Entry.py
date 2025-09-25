@@ -222,9 +222,16 @@ else:
         code_c = _find_col(_c, ["Cost Code", "Code"])
         desc_c = _find_col(_c, ["Description", "DESC", "Name"])
         active_c = _find_col(_c, ["Active", "ACTIVE"])
-        
+
+        st.info(f"DEBUG Cost Codes: Found {len(_c)} codes, Active column: {active_c}")
+
         if active_c:
-            _c = _c[_c[active_c].astype(str).str.upper().isin(["TRUE", "YES", "Y", "1"])]
+            st.info(f"DEBUG Cost Active values: {_c[active_c].value_counts().to_dict()}")
+            # Handle both boolean and string values for Active
+            before_filter = len(_c)
+            _c = _c[(_c[active_c] == True) | (_c[active_c].astype(str).str.upper().isin(["TRUE", "YES", "Y", "1"]))]
+            after_filter = len(_c)
+            st.info(f"DEBUG Cost Active filter: {before_filter} -> {after_filter} codes")
         
         if code_c:
             if desc_c:
@@ -254,7 +261,10 @@ try:
     _emp_df.columns = [str(c).strip() for c in _emp_df.columns]
 
     if "Active" in _emp_df.columns:
-        _emp_df = _emp_df[_emp_df["Active"].astype(str).str.upper().isin(["TRUE", "YES", "Y", "1"])]
+        st.info(f"DEBUG Employee Active filtering: {_emp_df['Active'].value_counts().to_dict()}")
+        # The issue might be that TRUE/FALSE are boolean, not strings
+        # Let's handle both boolean and string values
+        _emp_df = _emp_df[(_emp_df["Active"] == True) | (_emp_df["Active"].astype(str).str.upper().isin(["TRUE", "YES", "Y", "1"]))]
 
     EMP_NAME_COL = _find_col(_emp_df, ["Employee Name", "Name"])
     if not EMP_NAME_COL:
