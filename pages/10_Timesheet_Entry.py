@@ -23,6 +23,14 @@ try:
 except Exception:
     HAVE_UTILS = False
 
+# Gate: require login
+if not st.session_state.get("authenticated", False):
+    st.warning("Please sign in on the Home page first.")
+    st.stop()
+
+user = st.session_state.get("user_email")
+st.sidebar.info(f"Signed in as: {user}")
+
 XLSX = Path(__file__).resolve().parent.parent / "TimeSheet Apps.xlsx"
 
 @st.cache_data(ttl=10, show_spinner=False)
@@ -50,16 +58,32 @@ def _safe_read_excel_internal(file_path, sheet_name):
         st.error(f"Error reading Excel file: {e}")
         return pd.DataFrame()
 
+def get_available_worksheets(file_path):
+    """Get list of available worksheets in Excel file"""
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(file_path, read_only=True)
+        sheets = wb.sheetnames
+        wb.close()
+        return sheets
+    except Exception:
+        return []
+
 def safe_read_excel(file_path, sheet_name):
     """Safely read Excel file with caching based on file modification time"""
     try:
         file_path = Path(file_path)
         if not file_path.exists():
+            st.error(f"Excel file not found: {file_path}")
             return pd.DataFrame()
         mtime = file_path.stat().st_mtime
         return safe_read_excel_cached(str(file_path), sheet_name, _file_mtime=mtime)
     except Exception as e:
-        st.error(f"Error accessing Excel file: {e}")
+        available_sheets = get_available_worksheets(file_path)
+        if available_sheets:
+            st.error(f"Error accessing worksheet '{sheet_name}'. Available worksheets: {', '.join(available_sheets)}")
+        else:
+            st.error(f"Error accessing Excel file: {e}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=10, show_spinner=False)
@@ -71,7 +95,10 @@ def get_time_data_cached(_file_path, _date_filter=None):
             data["Date"] = pd.to_datetime(data["Date"])
             data = data[data["Date"].dt.strftime("%Y-%m-%d") == _date_filter]
         return data
-    except Exception:
+    except Exception as e:
+        available_sheets = get_available_worksheets(_file_path)
+        if available_sheets:
+            st.warning(f"Could not find 'Time Data' worksheet. Available worksheets: {', '.join(available_sheets)}")
         return pd.DataFrame()
 
 def save_to_excel_optimized(new_rows):
@@ -367,11 +394,19 @@ st.subheader("Current Time Data")
 try:
     selected_date_str = pd.to_datetime(date_val).strftime("%Y-%m-%d")
     filtered_data = get_time_data_cached(str(XLSX), selected_date_str)
-    
+
     total_data = get_time_data_cached(str(XLSX), None)
     total_entries = len(total_data) if not total_data.empty else 0
     filtered_entries = len(filtered_data) if not filtered_data.empty else 0
-    
+
+    # Debug info - remove after fixing
+    if total_entries == 0:
+        st.warning(f"No data found in Time Data worksheet. File: {XLSX}")
+        if XLSX.exists():
+            st.info("Excel file exists. Check if Time Data worksheet contains data.")
+        else:
+            st.error("Excel file not found.")
+
     st.caption(f"Showing {filtered_entries} of {total_entries} total entries for {date_val}")
     
     if not filtered_data.empty:

@@ -93,7 +93,6 @@ if "user_email" not in st.session_state:
     st.session_state["user_type"] = None
     st.session_state["authenticated"] = False
 
-
 # Show login form if not authenticated
 if not st.session_state.get("authenticated", False):
     st.title("🔐 PTW - Daily Timesheet Suite")
@@ -143,11 +142,6 @@ else:
             st.session_state["authenticated"] = False
             st.rerun()
 
-        # Temporary debug button - remove after fixing
-        if st.button("🔄 Clear Session (Debug)"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
         st.markdown("---")
 
     # Welcome message

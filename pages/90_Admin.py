@@ -4,11 +4,18 @@ st.session_state['page_header']='⚙️ Admin'
 
 import streamlit as st
 
-# Gate: require login from landing page
-user = st.session_state.get("user_email", "user@ptwenergy.com")
-if not user:
-    st.session_state["user_email"] = "user@ptwenergy.com"
-    user = "user@ptwenergy.com"
+# Gate: require login and admin access
+if not st.session_state.get("authenticated", False):
+    st.warning("Please sign in on the Home page first.")
+    st.stop()
+
+user_type = st.session_state.get("user_type", "User")
+if user_type.upper() != "ADMIN":
+    st.error("Access denied: Admin access required for this page.")
+    st.info("This page is only available to administrators.")
+    st.stop()
+
+user = st.session_state.get("user_email")
 st.sidebar.info(f"Signed in as: {user}")
 
 st.set_page_config(page_title=st.session_state.get("page_title", "PTW"), layout="wide")

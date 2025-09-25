@@ -5,6 +5,14 @@ import streamlit as st
 
 from app.features.export_daily_time import export_daily_time
 
+# Gate: require login
+if not st.session_state.get("authenticated", False):
+    st.warning("Please sign in on the Home page first.")
+    st.stop()
+
+user = st.session_state.get("user_email")
+st.sidebar.info(f"Signed in as: {user}")
+
 ROOT = Path(__file__).resolve().parents[1]
 
 st.set_page_config(page_title="Export Day", page_icon="📤", layout="wide")
