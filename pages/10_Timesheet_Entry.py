@@ -92,9 +92,22 @@ def get_time_data_cached(_file_path, _date_filter=None):
     try:
         data = pd.read_excel(_file_path, sheet_name="Time Data")
 
+        # Debug: Show what we loaded
+        st.info(f"DEBUG: Loaded {len(data)} rows from Time Data worksheet")
+        if not data.empty:
+            st.info(f"DEBUG: Columns: {list(data.columns)}")
+            if "Date" in data.columns:
+                unique_dates = data["Date"].unique()
+                st.info(f"DEBUG: Unique dates found: {unique_dates}")
+        else:
+            st.warning("DEBUG: Time Data worksheet loaded but is empty")
+
         if _date_filter and "Date" in data.columns:
+            original_count = len(data)
             data["Date"] = pd.to_datetime(data["Date"])
-            data = data[data["Date"].dt.strftime("%Y-%m-%d") == _date_filter]
+            filtered_data = data[data["Date"].dt.strftime("%Y-%m-%d") == _date_filter]
+            st.info(f"DEBUG: Filter '{_date_filter}' applied: {len(filtered_data)} rows from {original_count} total")
+            return filtered_data
 
         return data
     except Exception as e:
@@ -392,7 +405,13 @@ if st.button("Add line", type="primary", disabled=add_disabled):
 
 # --- Display current Time Data with proper date filtering ---
 st.divider()
-st.subheader("Current Time Data")
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.subheader("Current Time Data")
+with col2:
+    if st.button("🔄 Refresh Data", help="Clear cache and reload Time Data"):
+        st.cache_data.clear()
+        st.rerun()
 
 try:
     selected_date_str = pd.to_datetime(date_val).strftime("%Y-%m-%d")
