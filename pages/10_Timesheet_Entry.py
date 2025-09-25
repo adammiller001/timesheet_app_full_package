@@ -253,16 +253,8 @@ try:
     _emp_df = safe_read_excel(XLSX, "Employee List")
     _emp_df.columns = [str(c).strip() for c in _emp_df.columns]
 
-    # DEBUG: Show what's in the Employee List
-    st.info(f"DEBUG: Found {len(_emp_df)} employees in worksheet")
-    st.info(f"DEBUG: Employee columns: {list(_emp_df.columns)}")
-
     if "Active" in _emp_df.columns:
-        before_filter = len(_emp_df)
-        st.info(f"DEBUG: Active column values before filter: {_emp_df['Active'].unique().tolist()}")
         _emp_df = _emp_df[_emp_df["Active"].astype(str).str.upper().isin(["TRUE", "YES", "Y", "1"])]
-        after_filter = len(_emp_df)
-        st.info(f"DEBUG: Active filter applied: {before_filter} -> {after_filter} employees")
 
     EMP_NAME_COL = _find_col(_emp_df, ["Employee Name", "Name"])
     if not EMP_NAME_COL:
@@ -270,12 +262,8 @@ try:
         if EMP_NAME_COL not in _emp_df.columns:
             _emp_df[EMP_NAME_COL] = ""
 
-    st.info(f"DEBUG: Using name column: {EMP_NAME_COL}")
-
     _employee_options = sorted(_emp_df[EMP_NAME_COL].dropna().astype(str).unique().tolist())
-    st.info(f"DEBUG: Final employee options: {_employee_options}")
-except Exception as e:
-    st.error(f"DEBUG: Error loading employees: {e}")
+except Exception:
     _emp_df = pd.DataFrame()
     _employee_options = []
     EMP_NAME_COL = "Employee Name"
