@@ -92,22 +92,9 @@ def get_time_data_cached(_file_path, _date_filter=None):
     try:
         data = pd.read_excel(_file_path, sheet_name="Time Data")
 
-        # Debug: Show what we loaded
-        st.info(f"DEBUG: Loaded {len(data)} rows from Time Data worksheet")
-        if not data.empty:
-            st.info(f"DEBUG: Columns: {list(data.columns)}")
-            if "Date" in data.columns:
-                unique_dates = data["Date"].unique()
-                st.info(f"DEBUG: Unique dates found: {unique_dates}")
-        else:
-            st.warning("DEBUG: Time Data worksheet loaded but is empty")
-
         if _date_filter and "Date" in data.columns:
-            original_count = len(data)
             data["Date"] = pd.to_datetime(data["Date"])
-            filtered_data = data[data["Date"].dt.strftime("%Y-%m-%d") == _date_filter]
-            st.info(f"DEBUG: Filter '{_date_filter}' applied: {len(filtered_data)} rows from {original_count} total")
-            return filtered_data
+            data = data[data["Date"].dt.strftime("%Y-%m-%d") == _date_filter]
 
         return data
     except Exception as e:
