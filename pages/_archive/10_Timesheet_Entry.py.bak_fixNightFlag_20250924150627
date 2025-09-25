@@ -1,0 +1,365 @@
+import streamlit as st
+import pandas as pd
+from pathlib import Path
+
+# Try to use your helpers; fall back gracefully if not present
+try:
+    from utils_jobs import (
+        load_jobs_active,
+        build_job_options,     # we'll still format/pad area ourselves below
+        load_cost_options,
+    )
+    HAVE_UTILS = True
+except Exception:
+    HAVE_UTILS = False
+
+XLSX = Path(__file__).resolve().parent.parent / "Timesheet Apps.xlsx"
+
+st.markdown("### Timesheet Entry")
+
+# --- Date ---
+date_val = st.date_input("Date", value=pd.Timestamp.today().date(), format="YYYY/MM/DD", key="date_val")
+
+# --- Jobs (Active) ---
+def _find_col(df: pd.DataFrame, candidates):
+    for c in candidates:
+        if c in df.columns:
+            return c
+    return None
+
+def _pad_area(val: object) -> str:
+    s = str(val).strip()
+    if not s or s.lower() == "nan":
+        return ""
+    # keep digits; common case is "1" or "1.0"
+    import re
+    m = re.search(r"\d+", s)
+    d = m.group(0) if m else s
+    return d.zfill(3)
+
+def _build_job_options_local(df: pd.DataFrame):
+    if df is None or df.empty:
+        return []
+    job_c  = _find_col(df, ["Job Number", "JOB #", "Job #"])
+    area_c = _find_col(df, ["Area Number", "AREA #", "Area #"])
+    desc_c = _find_col(df, ["Description", "DESCRIPTION", "PROJECT NAME", "Project Name"])
+    if not job_c:
+        return []
+    out = []
+    for _, row in df.iterrows():
+        j = str(row.get(job_c, "") or "").strip()
+        a = _pad_area(row.get(area_c, "")) if area_c else ""
+        d = str(row.get(desc_c, "") or "").strip() if desc_c else ""
+        if j or a or d:
+            out.append(f"{j} - {a} - {d}")
+    # unique + sorted
+    return sorted(pd.Series(out).dropna().astype(str).unique().tolist())
+
+if HAVE_UTILS:
+    jobs_df = load_jobs_active(XLSX)
+    job_options = _build_job_options_local(jobs_df)
+else:
+    # Fallback: read Job Numbers sheet and filter Active == TRUE
+    try:
+        _df = pd.read_excel(XLSX, sheet_name="Job Numbers")
+        _df.columns = [str(c).strip() for c in _df.columns]
+        _actcol = _find_col(_df, ["Active"])
+        if _actcol:
+            _df = _df[_df[_actcol].astype(str).str.upper().isin(["TRUE", "YES", "Y", "1"])]
+        job_options = _build_job_options_local(_df)
+    except Exception:
+        job_options = []
+
+job_choice = st.selectbox(
+    "Job Number - Area Number - Description",
+    job_options,
+    index=None,
+    placeholder="Select a job...",
+)
+
+# --- Cost Codes ---
+if HAVE_UTILS:
+    cost_options = load_cost_options(XLSX)
+else:
+    # Fallback: try a standard sheet name
+    try:
+        _c = pd.read_excel(XLSX, sheet_name="Cost Codes")
+        _c.columns = [str(c).strip() for c in _c.columns]
+        code_c = _find_col(_c, ["Cost Code", "Code"])
+        desc_c = _find_col(_c, ["Description", "DESC", "Name"])
+        if code_c:
+            if desc_c:
+                cost_options = sorted((f"{str(r[code_c]).strip()} - {str(r[desc_c]).strip()}" for _, r in _c.iterrows()))
+            else:
+                cost_options = sorted((str(r[code_c]).strip() for _, r in _c.iterrows()))
+        else:
+            cost_options = []
+    except Exception:
+        cost_options = []
+
+cost_choice = st.selectbox(
+    "Cost Code - Description",
+    cost_options,
+    index=None,
+    placeholder="Select a cost code...",
+)
+
+st.divider()
+
+# --- Employees (multi-select) with auto Night Shift from "Employee List" ---
+_emp_df = pd.read_excel(XLSX, sheet_name="Employee List")
+_emp_df.columns = [str(c).strip() for c in _emp_df.columns]
+
+# Filter active employees
+if "Active" in _emp_df.columns:
+    _emp_df = _emp_df[_emp_df["Active"].astype(str).str.upper().isin(["TRUE", "YES", "Y", "1"])]
+
+# Build list of names
+EMP_NAME_COL = _find_col(_emp_df, ["Employee Name", "Name"])
+if not EMP_NAME_COL:
+    EMP_NAME_COL = "Employee Name"  # keep a default to avoid KeyError
+    if EMP_NAME_COL not in _emp_df.columns:
+        _emp_df[EMP_NAME_COL] = ""
+
+_employee_options = sorted(_emp_df[EMP_NAME_COL].dropna().astype(str).unique().tolist())
+
+selected_employees = st.multiselect(
+    "Employees",
+    options=_employee_options,
+    default=st.session_state.get("selected_employees", []),
+    placeholder="Select one or more employees...",
+)
+st.session_state["selected_employees"] = selected_employees
+
+with st.expander("Add multiple employees fast (optional)", icon="ðŸ‘¥"):
+    import pandas as _pd
+    _grid = _pd.DataFrame({"Add": False, "Employee": _employee_options})
+    _sel = st.data_editor(_grid, hide_index=True, use_container_width=True)
+    _extra = [str(x) for x in _sel.loc[_sel["Add"] == True, "Employee"].tolist() if x]
+    if _extra:
+        _all = sorted(set(st.session_state.get("selected_employees", [])) | set(_extra))
+        st.session_state["selected_employees"] = _all
+
+    # Return "Y" or "" based on Employee List column "Night Shift"
+for _nm in selected_employees:
+    _row = _emp_df.loc[_emp_df[EMP_NAME_COL].astype(str) == str(_name)]
+    if _row.empty:
+        return ""
+    _v = str(_row.iloc[0].get("Night Shift", "")).strip().upper()
+    return "Y" if _v in {"Y", "YES", "TRUE", "1"} else ""
+
+cols = st.columns(3)
+with cols[0]:
+    rt_hours = st.number_input("RT Hours", min_value=0.00, step=0.25, format="%.2f", value=0.00)
+with cols[1]:
+    ot_hours = st.number_input("OT Hours", min_value=0.00, step=0.25, format="%.2f", value=0.00)
+with cols[2]:
+    if selected_employees:
+
+        pass  # removed preview loop
+desc_work = st.text_input("Description of work", value="")
+comments  = st.text_input("Comments", value="")
+
+# --- Pending rows holder ---
+if "pending_rows" not in st.session_state:
+    st.session_state["pending_rows"] = []
+
+def _parse_job(choice: str):
+    if not choice:
+        return "", "", ""
+    parts = choice.split(" - ", 2)
+    parts += [""] * (3 - len(parts))
+    return parts[0], parts[1], parts[2]
+
+# --- Add line (fan-out for each selected employee) ---
+add_disabled = not (job_choice and cost_choice and selected_employees and (rt_hours > 0 or ot_hours > 0))
+if st.button("Add line", type="primary", disabled=add_disabled):
+    job_num, job_area, job_desc = _parse_job(job_choice)
+    for _nm in selected_employees:
+        _row = _emp_df.loc[_emp_df[EMP_NAME_COL].astype(str) == str(_nm)]
+        emp_num = str((_row.iloc[0].get("Person Number") if not _row.empty else "") or "")
+        trade   = str((_row.iloc[0].get("Override Trade Class", _row.iloc[0].get("Trade Class", "")) if not _row.empty else "") or "")
+        prem    = str((_row.iloc[0].get("Premium Rate / Subsistence Rate / Travel Rate") if not _row.empty else "") or "")
+        night   = night_flag_for(_nm)
+        st.session_state["pending_rows"].append({
+            "Job Number": job_num,
+            "Job Area": job_area,
+            "Date": pd.to_datetime(date_val).strftime("%Y-%m-%d"),
+            "Name": _nm,
+            "Trade Class": trade,
+            "Employee Number": emp_num,
+            "RT Hours": rt_hours,
+            "OT Hours": ot_hours,
+            "Description of work": (desc_work or job_desc),
+            "Comments": comments,
+            "Night Shift": night,
+            "Premium Rate / Subsistence Rate / Travel Rate": prem,
+            "Cost Code": cost_choice.split(" - ", 1)[0],
+        })
+# --- Pending table ---
+if st.session_state["pending_rows"]:
+    df = pd.DataFrame(st.session_state["pending_rows"])
+    st.dataframe(df, use_container_width=True, hide_index=True)
+if st.session_state.get("pending_rows"):
+    import io
+    _needed_cols = [
+        'Job Number','Job Area','Date','Name','Trade Class','Employee Number',
+        'RT Hours','OT Hours','Description of work','Comments','Night Shift',
+        'Premium Rate / Subsistence Rate / Travel Rate','Cost Code'
+    ]
+    _df_dl = pd.DataFrame(st.session_state["pending_rows"])
+    # ensure columns exist
+    for _c in _needed_cols:
+        if _c not in _df_dl.columns:
+            _df_dl[_c] = ""
+    _buf = io.BytesIO()
+    _df_dl[_needed_cols].to_excel(_buf, index=False)
+    st.download_button(
+        "Download lines as Excel (Time Data)",
+        data=_buf.getvalue(),
+        file_name="time_data_rows.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="dl_time_data_rows"
+    )
+
+    def _save_to_time_data(pending: pd.DataFrame):
+        needed = [
+            "Job Number","Job Area","Date","Name","Trade Class",
+            "Employee Number","RT Hours","OT Hours","Description of work",
+            "Comments","Night Shift","Premium Rate / Subsistence Rate / Travel Rate"
+        ]
+        try:
+            existing = pd.read_excel(XLSX, sheet_name="Time Data")
+        except Exception:
+            existing = pd.DataFrame(columns=needed)
+
+        # ensure columns
+        for c in needed:
+            if c not in existing.columns:
+                existing[c] = pd.Series(dtype=object)
+            if c not in pending.columns:
+                pending[c] = ""
+
+        out = pd.concat([existing[needed], pending[needed]], ignore_index=True)
+        with pd.ExcelWriter(XLSX, engine="openpyxl", mode="a", if_sheet_exists="replace") as w:
+            out.to_excel(w, sheet_name="Time Data", index=False)
+
+    if st.button("Save lines to workbook (Time Data)"):
+        try:
+            _save_to_time_data(pd.DataFrame(st.session_state["pending_rows"]))
+            st.success(f"Saved {len(st.session_state['pending_rows'])} line(s) to 'Time Data'.")
+            st.session_state["pending_rows"] = []
+        except Exception as e:
+            st.error(f"Could not save rows: {e}")
+else:
+    st.info("Add at least one line above to enable saving.")
+
+# --- Exports (template-driven) ---
+from pathlib import Path as _Path
+import io as _io, zipfile as _zip, os as _os, re as _re
+import pandas as _pd
+from openpyxl import load_workbook as _load_wb
+from shutil import copyfile as _copyfile
+
+_EXPORT_ROOT = _Path(__file__).resolve().parent.parent
+_TEMPLATE_DAILY_TIME = _EXPORT_ROOT / "Daily Time.xlsx"
+_TEMPLATE_TIME_ENTRIES = _EXPORT_ROOT / "TimeEntries.xlsx"
+
+def _safe_name(s) -> str:
+    return _re.sub(r"[^0-9A-Za-z._-]+", "_", str(s)).strip("_")
+
+def _write_df_into_template(template_path: _Path, out_path: _Path, sheet_name: str, df: _pd.DataFrame):
+    # copy template first to preserve formatting/widths/styles
+    _copyfile(template_path, out_path)
+    wb = _load_wb(out_path)
+    if sheet_name not in wb.sheetnames:
+        # fallback to first sheet if name missing
+        ws = wb[wb.sheetnames[0]]
+    else:
+        ws = wb[sheet_name]
+
+    # Assume headers are on row 1; read them and write values from row 2 downward.
+    headers = []
+    for cell in ws[1]:
+        headers.append((cell.value if cell.value is not None else ""))
+
+    # Build a mapping from header text -> column index (1-based)
+    hmap = {str(h).strip(): i+1 for i, h in enumerate(headers) if str(h).strip()}
+
+    # Clear data below header (only clear the used columns)
+    max_rows_to_clear = max(10000, len(df) + 10)
+    for h, col_idx in hmap.items():
+        for r in range(2, max_rows_to_clear+1):
+            ws.cell(row=r, column=col_idx, value=None)
+
+    # Write df cells into matching header columns
+    for col_name in df.columns:
+        key = str(col_name).strip()
+        if key in hmap:
+            cidx = hmap[key]
+            for r, val in enumerate(df[col_name].tolist(), start=2):
+                ws.cell(row=r, column=cidx, value=val)
+
+    wb.save(out_path)
+
+def create_exports(rows):
+    df = _pd.DataFrame(rows)
+    out_paths = []
+    if df.empty:
+        return out_paths
+
+    # Normalize types
+    if "Date" in df.columns:
+        df["Date"] = _pd.to_datetime(df["Date"], errors="coerce").dt.date
+    for col in ("RT Hours", "OT Hours"):
+        if col in df.columns:
+            df[col] = _pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
+    # === Daily Time (one per date) ===
+    if "Date" in df.columns and _TEMPLATE_DAILY_TIME.exists():
+        for d, g in df.groupby("Date", dropna=False):
+            if _pd.isna(d): 
+                continue
+            out_path = _EXPORT_ROOT / f"{d:%m-%d-%Y} - Daily Time.xlsx"
+            _write_df_into_template(_TEMPLATE_DAILY_TIME, out_path, "Daily Time", g)
+            out_paths.append(str(out_path))
+
+    # === Daily Imports (one per date+job) ===
+    if {"Date","Job Number","Job Area"}.issubset(df.columns) and _TEMPLATE_TIME_ENTRIES.exists():
+        for (d, job, area), g in df.groupby(["Date","Job Number","Job Area"], dropna=False):
+            if _pd.isna(d):
+                continue
+            out_path = _EXPORT_ROOT / f"{d:%m-%d-%Y} - {job} - Daily Import.xlsx"
+            _write_df_into_template(_TEMPLATE_TIME_ENTRIES, out_path, "TimeEntries", g)
+            out_paths.append(str(out_path))
+
+    return out_paths
+
+# Buttons (only when there are pending rows)
+if st.session_state.get("pending_rows"):
+    cE1, cE2 = st.columns([1,1])
+    with cE1:
+        if st.button("Create Exports"):
+            try:
+                _paths = create_exports(st.session_state["pending_rows"])
+                st.session_state["last_exports"] = _paths
+                st.success(f"Created {len(_paths)} export file(s) next to this app.")
+            except Exception as _e:
+                st.error(f"Export failed: {_e}")
+    with cE2:
+        if st.button("Create & Download All"):
+            try:
+                _paths = create_exports(st.session_state["pending_rows"])
+                _buf = _io.BytesIO()
+                with _zip.ZipFile(_buf, "w", _zip.ZIP_DEFLATED) as z:
+                    for _p in _paths:
+                        z.write(_p, arcname=_os.path.basename(_p))
+                st.download_button(
+                    "Download All",
+                    data=_buf.getvalue(),
+                    file_name=f"exports_{_pd.Timestamp.today().date()}.zip",
+                    mime="application/zip"
+                )
+            except Exception as _e:
+                st.error(f"Export failed: {_e}")
+# --- end Exports ---

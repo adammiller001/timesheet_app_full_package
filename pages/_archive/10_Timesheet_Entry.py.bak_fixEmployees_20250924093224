@@ -1,0 +1,177 @@
+﻿
+import streamlit as st
+# ==== Employees (multi-select) & shared hours (Night Shift auto from "Employee List") ====
+import pandas as pd
+from pathlib import Path
+
+_xlsx_emp = Path(__file__).resolve().parent.parent / "Timesheet Apps.xlsx"
+_emp_df = pd.read_excel(_xlsx_emp, sheet_name="Employee List")
+_emp_df.columns = [str(c).strip() for c in _emp_df.columns]
+_emp_df = _emp_df[_emp_df["Active"].astype(str).str.upper().eq("TRUE")]
+
+_employee_options = sorted(_emp_df["Employee Name"].dropna().astype(str).unique().tolist())
+
+selected_employees = st.multiselect(
+    "Employees",
+    options=emp_names if "emp_names" in locals() else [],
+    default=st.session_state.get("selected_employees", []),
+    placeholder="Select one or more employees…",
+)
+st.session_state["selected_employees"] = selected_employees
+    "Employees",
+    options=_employee_options,
+    placeholder="Select one or more employees…",
+    key="employees_multi",
+)
+
+def night_flag_for(_name: str) -> str:
+    _row = _emp_df.loc[_emp_df["Employee Name"].astype(str) == str(_name)]
+    if _row.empty:
+        return ""
+    _v = str(_row.iloc[0].get("Night Shift", "")).strip().upper()
+    return "Y" if _v in {"Y", "YES", "TRUE", "1"} else ""
+
+_cols_emp = st.columns(3)
+rt_hours = _cols_emp[0].number_input("RT Hours", min_value=0.00, step=0.25, format="%.2f", key="rt_shared")
+ot_hours = _cols_emp[1].number_input("OT Hours", min_value=0.00, step=0.25, format="%.2f", key="ot_shared")
+
+with _cols_emp[2]:
+    if selected_employees:
+        st.caption("Night Shift (auto):")
+        for _nm in selected_employees:
+            st.write(f"• {_nm}: **{'Y' if night_flag_for(_nm) else 'N'}**")
+# ==== end Employees (multi-select) ====
+import pandas as pd
+from pathlib import Path
+
+from utils_jobs import (
+    load_jobs_active, build_job_options,
+    load_cost_options, load_employees
+)
+
+XLSX = Path(__file__).resolve().parent.parent / "Timesheet Apps.xlsx"
+
+st.markdown("### Timesheet Entry")
+st.caption("Heartbeat: UI rendered. If this disappears after selecting an employee, tell me.")
+
+# --- Date ---
+date_val = st.date_input("Date", value=pd.Timestamp.today().date(), format="YYYY/MM/DD", key="date_val")
+
+# --- Job & Cost Code ---
+jobs_df = load_jobs_active(XLSX)
+job_options = build_job_options(jobs_df)
+job_choice = st.selectbox(
+    "Job Number - Area Number - Description",
+    job_options, default=None, placeholder="Select a job…"
+)
+
+cost_options = load_cost_options(XLSX)
+cost_choice = st.selectbox(
+    "Cost Code - Description",
+    cost_options, default=None, placeholder="Select a cost code…"
+)
+
+st.divider()
+
+# --- Employee block ---
+emp_df = load_employees(XLSX)
+emp_names = emp_df["Employee Name"].tolist() if "Employee Name" in emp_df.columns else []
+emp_choice = st.multiselect("Employee", emp_names, default=None, placeholder="Select an employee…")
+
+# Defaults from selected employee
+trade_default = ""
+night_default = False
+prem_default = ""
+emp_num = ""
+if emp_choice:
+    row = emp_df.loc[emp_df["Employee Name"] == emp_choice].iloc[0]
+    emp_num = str(row.get("Person Number", "") or "")
+    trade_default = str(row.get("Trade Class", "") or "")
+    night_default = bool(row.get("Night Shift", False))
+    prem_default = str(row.get("Premium Rate", "") or "")
+
+c1, c2, c3 = st.columns(3)
+with c1:
+    rt_hours = st.number_input("RT Hours", min_value=0.0, step=0.5, format="%.2f", value=0.0)
+with c2:
+    ot_hours = st.number_input("OT Hours", min_value=0.0, step=0.5, format="%.2f", value=0.0)
+with c3:
+    night_shift = st.checkbox("Night Shift", value=night_default)
+
+desc_work = st.text_input("Description of work", value="")
+comments  = st.text_input("Comments", value="")
+trade_cls = st.text_input("Trade Class", value=trade_default)
+premium   = st.text_input("Premium Rate / Subsistence Rate / Travel Rate", value=prem_default)
+
+if "pending_rows" not in st.session_state:
+    st.session_state["pending_rows"] = []
+
+def _parse_job(choice: str):
+    if not choice:
+        return "", "", ""
+    parts = choice.split(" - ", 2)
+    parts += [""] * (3 - len(parts))
+    return parts[0], parts[1], parts[2]
+
+add_disabled = not (job_choice and cost_choice and emp_choice and (rt_hours > 0 or ot_hours > 0))
+if st.button("Add line", type="primary", disabled=add_disabled):
+    job_num, job_area, job_desc = _parse_job(job_choice)
+    st.session_state["pending_rows"].append({
+        "Job Number": job_num,
+        "Job Area": job_area,
+        "Date": pd.to_datetime(date_val).strftime("%Y-%m-%d"),
+        "Name": emp_choice,
+        "Class Type": "",  # keep empty if you don't maintain this
+        "Trade Class": trade_cls,
+        "Employee Number": emp_num,
+        "RT Hours": rt_hours,
+        "OT Hours": ot_hours,
+        "Description of work": (desc_work or job_desc),
+        "Comments": comments,
+        "Night Shift": night_shift,
+        "Premium Rate / Subsistence Rate / Travel Rate": premium,
+        # keep Cost Code in the table for visibility (not in Time Data headers but useful)
+        "Cost Code": cost_choice.split(" - ", 1)[0],
+    })
+
+# --- Pending table ---
+if st.session_state["pending_rows"]:
+    df = pd.DataFrame(st.session_state["pending_rows"])
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    def _save_to_time_data(pending: pd.DataFrame):
+        # Only persist the columns that exist in Time Data
+        needed = ['Job Number','Job Area','Date','Name','Class Type','Trade Class',
+                  'Employee Number','RT Hours','OT Hours','Description of work',
+                  'Comments','Night Shift','Premium Rate / Subsistence Rate / Travel Rate']
+        try:
+            existing = pd.read_excel(XLSX, sheet_name="Time Data")
+        except Exception:
+            existing = pd.DataFrame(columns=needed)
+
+        # Ensure required columns exist in both frames
+        for c in needed:
+            if c not in existing.columns:
+                existing[c] = pd.Series(dtype=object)
+            if c not in pending.columns:
+                pending[c] = ""
+
+        out = pd.concat([existing[needed], pending[needed]], ignore_index=True)
+        with pd.ExcelWriter(XLSX, engine="openpyxl", mode="a", if_sheet_exists="replace") as w:
+            out.to_excel(w, sheet_name="Time Data", default=False)
+
+    if st.button("Save lines to workbook (Time Data)"):
+        try:
+            _save_to_time_data(pd.DataFrame(st.session_state["pending_rows"]))
+            st.success(f"Saved {len(st.session_state['pending_rows'])} line(s) to 'Time Data'.")
+            st.session_state["pending_rows"] = []
+        except Exception as e:
+            st.error(f"Could not save rows: {e}")
+else:
+    st.info("Add at least one line above to enable saving.")
+
+
+
+
+
+

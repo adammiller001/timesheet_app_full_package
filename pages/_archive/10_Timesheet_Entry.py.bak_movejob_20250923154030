@@ -1,0 +1,31 @@
+﻿import streamlit as st
+# === Jobs loader (tolerant) ===
+from pathlib import Path
+from utils_jobs import load_jobs_auto, build_job_options
+
+xlsx_path = (Path(__file__).resolve().parent.parent / "Timesheet Apps.xlsx")
+
+jobs_df = None
+job_options = []
+jobs_msg = None
+
+try:
+    jobs_df = load_jobs_auto(xlsx_path)
+    job_options = build_job_options(jobs_df)
+    if not job_options:
+        jobs_msg = "No jobs found after cleaning."
+except FileNotFoundError:
+    jobs_msg = f"Workbook not found at: {xlsx_path}"
+except ValueError as e:
+    jobs_msg = str(e)
+except Exception as e:
+    jobs_msg = f"Unexpected error reading jobs: {e}"
+
+if jobs_msg:
+    st.warning(f"Jobs list not loaded: {jobs_msg}")
+    job_choice = st.selectbox("Job (no jobs found)", options=[], index=None, disabled=True, key="job_select_empty")
+else:
+    job_choice = st.selectbox("Job (auto)", options=job_options, index=None, placeholder="Select a job…", key="job_select_auto__loader")
+# === end Jobs loader ===
+
+
