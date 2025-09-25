@@ -91,14 +91,29 @@ def get_time_data_cached(_file_path, _date_filter=None):
     """Cached time data retrieval with optional date filtering"""
     try:
         data = pd.read_excel(_file_path, sheet_name="Time Data")
+
+        # Debug: show data info
+        if not data.empty:
+            st.success(f"Successfully loaded {len(data)} rows from Time Data worksheet")
+            if "Date" in data.columns:
+                st.info(f"Date column found. Sample dates: {data['Date'].head(3).tolist()}")
+            else:
+                st.warning(f"No 'Date' column found. Available columns: {list(data.columns)}")
+        else:
+            st.warning("Time Data worksheet is empty (0 rows)")
+
         if _date_filter and "Date" in data.columns:
+            original_count = len(data)
             data["Date"] = pd.to_datetime(data["Date"])
             data = data[data["Date"].dt.strftime("%Y-%m-%d") == _date_filter]
+            st.info(f"Date filter '{_date_filter}' applied: {len(data)} rows remaining (from {original_count})")
+
         return data
     except Exception as e:
+        st.error(f"Error reading Time Data worksheet: {e}")
         available_sheets = get_available_worksheets(_file_path)
         if available_sheets:
-            st.warning(f"Could not find 'Time Data' worksheet. Available worksheets: {', '.join(available_sheets)}")
+            st.warning(f"Available worksheets: {', '.join(available_sheets)}")
         return pd.DataFrame()
 
 def save_to_excel_optimized(new_rows):
@@ -404,6 +419,16 @@ try:
         st.warning(f"No data found in Time Data worksheet. File: {XLSX}")
         if XLSX.exists():
             st.info("Excel file exists. Check if Time Data worksheet contains data.")
+            # Show available worksheets
+            available_sheets = get_available_worksheets(XLSX)
+            if available_sheets:
+                st.info(f"Available worksheets: {', '.join(available_sheets)}")
+                if 'Time Data' not in available_sheets:
+                    st.error("'Time Data' worksheet not found!")
+                else:
+                    st.info("'Time Data' worksheet exists but appears empty.")
+            else:
+                st.error("Could not read worksheet names from Excel file.")
         else:
             st.error("Excel file not found.")
 
