@@ -92,21 +92,9 @@ def get_time_data_cached(_file_path, _date_filter=None):
     try:
         data = pd.read_excel(_file_path, sheet_name="Time Data")
 
-        # Debug: show data info
-        if not data.empty:
-            st.success(f"Successfully loaded {len(data)} rows from Time Data worksheet")
-            if "Date" in data.columns:
-                st.info(f"Date column found. Sample dates: {data['Date'].head(3).tolist()}")
-            else:
-                st.warning(f"No 'Date' column found. Available columns: {list(data.columns)}")
-        else:
-            st.warning("Time Data worksheet is empty (0 rows)")
-
         if _date_filter and "Date" in data.columns:
-            original_count = len(data)
             data["Date"] = pd.to_datetime(data["Date"])
             data = data[data["Date"].dt.strftime("%Y-%m-%d") == _date_filter]
-            st.info(f"Date filter '{_date_filter}' applied: {len(data)} rows remaining (from {original_count})")
 
         return data
     except Exception as e:
@@ -414,26 +402,22 @@ try:
     total_entries = len(total_data) if not total_data.empty else 0
     filtered_entries = len(filtered_data) if not filtered_data.empty else 0
 
-    # Debug info - remove after fixing
+    # Show helpful message when no data exists
     if total_entries == 0:
-        st.warning(f"No data found in Time Data worksheet. File: {XLSX}")
-        if XLSX.exists():
-            st.info("Excel file exists. Check if Time Data worksheet contains data.")
-            # Show available worksheets
-            available_sheets = get_available_worksheets(XLSX)
-            if available_sheets:
-                st.info(f"Available worksheets: {', '.join(available_sheets)}")
-                if 'Time Data' not in available_sheets:
-                    st.error("'Time Data' worksheet not found!")
-                else:
-                    st.info("'Time Data' worksheet exists but appears empty.")
-            else:
-                st.error("Could not read worksheet names from Excel file.")
-        else:
-            st.error("Excel file not found.")
+        available_sheets = get_available_worksheets(XLSX)
+        if available_sheets and 'Time Data' not in available_sheets:
+            st.error(f"'Time Data' worksheet not found! Available worksheets: {', '.join(available_sheets)}")
+        elif total_entries == 0:
+            st.info("Time Data worksheet is empty. Add some entries using the form above.")
+
+    # Improve user experience when no data for selected date
+    if total_entries > 0 and filtered_entries == 0:
+        st.info(f"No entries found for {date_val}. Showing all {total_entries} entries from Time Data worksheet instead.")
+        filtered_data = total_data  # Show all data instead of empty
+        filtered_entries = total_entries
 
     st.caption(f"Showing {filtered_entries} of {total_entries} total entries for {date_val}")
-    
+
     if not filtered_data.empty:
         st.dataframe(filtered_data, use_container_width=True, hide_index=True)
         
