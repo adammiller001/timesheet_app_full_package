@@ -30,7 +30,6 @@ def safe_read_excel(file_path, sheet_name):
         st.error(f"Error reading Excel file: {e}")
         return pd.DataFrame()
 
-@st.cache_data(ttl=5, show_spinner=False)
 def load_users():
     """Load users from Excel file"""
     excel_path = Path(__file__).parent / "TimeSheet Apps.xlsx"

@@ -33,7 +33,6 @@ st.sidebar.info(f"Signed in as: {user}")
 
 XLSX = Path(__file__).resolve().parent.parent / "TimeSheet Apps.xlsx"
 
-@st.cache_data(ttl=5, show_spinner=False)
 def safe_read_excel_cached(file_path, sheet_name, _file_mtime=None):
     """Cached version of safe_read_excel with shorter TTL for performance"""
     return _safe_read_excel_internal(file_path, sheet_name)
@@ -116,7 +115,13 @@ def save_to_session(new_rows):
         st.error(f"Error saving to session: {e}")
         return False
 
-st.markdown("### Timesheet Entry")
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.markdown("### Timesheet Entry")
+with col2:
+    if st.button("🔄 Refresh Dropdowns", help="Reload user and employee data from Excel"):
+        st.cache_data.clear()
+        st.rerun()
 
 # --- Date ---
 date_val = st.date_input("Date", value=pd.Timestamp.today().date(), format="YYYY/MM/DD", key="date_val")
