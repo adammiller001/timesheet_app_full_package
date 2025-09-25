@@ -20,6 +20,13 @@ st.title("Export Day")
 
 # ---------- helpers ----------
 def _find_hours_df():
+    # First check for our session time data
+    if "session_time_data" in st.session_state and st.session_state.session_time_data is not None:
+        df = st.session_state.session_time_data
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            return df.copy()
+
+    # Then check other candidates
     candidates = [
         "hours_entered_df","hours_df","entered_rows_df","rows_df",
         "hours_table_df","hours_table_data","rows",

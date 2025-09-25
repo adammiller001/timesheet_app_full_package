@@ -86,76 +86,34 @@ def safe_read_excel(file_path, sheet_name):
             st.error(f"Error accessing Excel file: {e}")
         return pd.DataFrame()
 
-@st.cache_data(ttl=5, show_spinner=False)
-def get_time_data_cached(_file_path, _date_filter=None):
-    """Cached time data retrieval with optional date filtering"""
+def get_time_data_from_session(_date_filter=None):
+    """Get time data from session state with optional date filtering"""
     try:
-        data = pd.read_excel(_file_path, sheet_name="Time Data")
+        data = st.session_state.session_time_data.copy()
 
-        if _date_filter and "Date" in data.columns:
+        if _date_filter and "Date" in data.columns and not data.empty:
             data["Date"] = pd.to_datetime(data["Date"])
             data = data[data["Date"].dt.strftime("%Y-%m-%d") == _date_filter]
 
         return data
     except Exception as e:
-        st.error(f"Error reading Time Data worksheet: {e}")
-        available_sheets = get_available_worksheets(_file_path)
-        if available_sheets:
-            st.warning(f"Available worksheets: {', '.join(available_sheets)}")
+        st.error(f"Error reading session time data: {e}")
         return pd.DataFrame()
 
-def save_to_excel_optimized(new_rows):
-    """Optimized Excel saving with better error handling and performance"""
+def save_to_session(new_rows):
+    """Save new rows to session state (Excel file is read-only on cloud)"""
     try:
-        existing_data = pd.DataFrame()
-        try:
-            existing_data = pd.read_excel(XLSX, sheet_name="Time Data")
-        except Exception:
-            pass
-        
         new_data_df = pd.DataFrame(new_rows)
-        if not existing_data.empty:
-            final_data = pd.concat([existing_data, new_data_df], ignore_index=True)
+
+        # Add to session state Time Data
+        if not st.session_state.session_time_data.empty:
+            st.session_state.session_time_data = pd.concat([st.session_state.session_time_data, new_data_df], ignore_index=True)
         else:
-            final_data = new_data_df
-        
-        max_attempts = 3
-        for attempt in range(max_attempts):
-            try:
-                with pd.ExcelWriter(XLSX, mode='a', if_sheet_exists='replace', engine='openpyxl') as writer:
-                    final_data.to_excel(writer, sheet_name='Time Data', index=False)
-                # Verify the save worked by checking if we can read it back
-                try:
-                    verification = pd.read_excel(XLSX, sheet_name="Time Data")
-                    if len(verification) >= len(final_data):
-                        return True
-                    else:
-                        st.warning("Save appeared successful but data verification failed")
-                        return False
-                except Exception:
-                    st.warning("Save appeared successful but could not verify")
-                    return True
-            except PermissionError:
-                if attempt < max_attempts - 1:
-                    st.warning(f"Excel file is locked. Retrying... (attempt {attempt + 1})")
-                    sleep(1)
-                    continue
-                else:
-                    try:
-                        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
-                            final_data.to_excel(tmp.name, sheet_name='Time Data', index=False)
-                        sleep(0.5)
-                        import shutil
-                        shutil.move(tmp.name, XLSX)
-                        return True
-                    except Exception as e:
-                        st.error(f"Could not save even with temp file method: {e}")
-                        return False
-            except Exception as e:
-                st.error(f"Unexpected error saving to Excel: {e}")
-                return False
+            st.session_state.session_time_data = new_data_df
+
+        return True
     except Exception as e:
-        st.error(f"Error in save_to_excel_optimized: {e}")
+        st.error(f"Error saving to session: {e}")
         return False
 
 st.markdown("### Timesheet Entry")
@@ -166,6 +124,20 @@ date_val = st.date_input("Date", value=pd.Timestamp.today().date(), format="YYYY
 # Form reset mechanism
 if "form_counter" not in st.session_state:
     st.session_state.form_counter = 0
+
+# Initialize session-based Time Data storage
+if "session_time_data" not in st.session_state:
+    # Load initial data from Excel file
+    try:
+        initial_data = pd.read_excel(XLSX, sheet_name="Time Data")
+        st.session_state.session_time_data = initial_data
+    except Exception:
+        st.session_state.session_time_data = pd.DataFrame(columns=[
+            "Job Number", "Job Area", "Date", "Name", "Trade Class",
+            "Employee Number", "RT Hours", "OT Hours", "Description of work",
+            "Comments", "Night Shift", "Premium Rate", "Subsistence Rate",
+            "Travel Rate", "Indirect", "Cost Code"
+        ])
 
 # --- Helper functions ---
 def _find_col(df: pd.DataFrame, candidates):
@@ -382,16 +354,12 @@ if st.button("Add line", type="primary", disabled=add_disabled):
                 }
                 new_rows.append(new_row)
             
-            success = save_to_excel_optimized(new_rows)
-            
-            if success:
-                st.success(f"Added {len(new_rows)} line(s) to Time Data sheet.")
-                safe_read_excel_cached.clear()
-                get_time_data_cached.clear()
+            success = save_to_session(new_rows)
 
+            if success:
+                st.success(f"Added {len(new_rows)} line(s) to Time Data.")
                 # Clear form by incrementing counter (changes all widget keys)
                 st.session_state.form_counter += 1
-
                 st.rerun()
             else:
                 st.error("Failed to save data. Please try again.")
@@ -411,9 +379,9 @@ with col2:
 
 try:
     selected_date_str = pd.to_datetime(date_val).strftime("%Y-%m-%d")
-    filtered_data = get_time_data_cached(str(XLSX), selected_date_str)
+    filtered_data = get_time_data_from_session(selected_date_str)
 
-    total_data = get_time_data_cached(str(XLSX), None)
+    total_data = get_time_data_from_session(None)
     total_entries = len(total_data) if not total_data.empty else 0
     filtered_entries = len(filtered_data) if not filtered_data.empty else 0
 
@@ -470,19 +438,10 @@ try:
                                 indices_to_delete.append(actual_index)
 
                         if indices_to_delete:
-                            updated_data = total_data.drop(index=indices_to_delete).reset_index(drop=True)
-
-                            try:
-                                with pd.ExcelWriter(XLSX, mode='a', if_sheet_exists='replace', engine='openpyxl') as writer:
-                                    updated_data.to_excel(writer, sheet_name='Time Data', index=False)
-
-                                safe_read_excel_cached.clear()
-                                get_time_data_cached.clear()
-                                st.success(f"Deleted {len(indices_to_delete)} selected entries from {date_val}.")
-                                st.rerun()
-
-                            except Exception as e:
-                                st.error(f"Could not delete entries: {e}")
+                            # Update session state data
+                            st.session_state.session_time_data = total_data.drop(index=indices_to_delete).reset_index(drop=True)
+                            st.success(f"Deleted {len(indices_to_delete)} selected entries from {date_val}.")
+                            st.rerun()
                         else:
                             st.error("No valid entries selected for deletion.")
 
@@ -500,31 +459,14 @@ try:
             if delete_all_button:
                 with st.spinner("Deleting all entries..."):
                     try:
+                        # Update session state - keep entries from other dates
                         remaining_data = total_data[
                             pd.to_datetime(total_data["Date"]).dt.strftime("%Y-%m-%d") != selected_date_str
                         ].reset_index(drop=True) if not total_data.empty else pd.DataFrame()
 
-                        try:
-                            with pd.ExcelWriter(XLSX, mode='a', if_sheet_exists='replace', engine='openpyxl') as writer:
-                                if not remaining_data.empty:
-                                    remaining_data.to_excel(writer, sheet_name='Time Data', index=False)
-                                else:
-                                    headers = [
-                                        "Job Number", "Job Area", "Date", "Name", "Trade Class",
-                                        "Employee Number", "RT Hours", "OT Hours", "Description of work",
-                                        "Comments", "Night Shift", "Premium Rate", "Subsistence Rate",
-                                        "Travel Rate", "Indirect", "Cost Code"
-                                    ]
-                                    empty_df = pd.DataFrame(columns=headers)
-                                    empty_df.to_excel(writer, sheet_name='Time Data', index=False)
-
-                            safe_read_excel_cached.clear()
-                            get_time_data_cached.clear()
-                            st.success(f"Deleted {filtered_entries} entries from {date_val}.")
-                            st.rerun()
-
-                        except Exception as e:
-                            st.error(f"Could not delete entries: {e}")
+                        st.session_state.session_time_data = remaining_data
+                        st.success(f"Deleted {filtered_entries} entries from {date_val}.")
+                        st.rerun()
 
                     except Exception as e:
                         st.error(f"Could not delete entries: {e}")
