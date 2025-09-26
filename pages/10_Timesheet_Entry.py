@@ -972,13 +972,18 @@ if user_type.upper() == "ADMIN":
                 emp_name = str(emp_entries[0].get('Name', ''))
 
                 # Base employee info (columns A-D)
-                ws.cell(row=row_num, column=1, value=emp_name)
-                ws.cell(row=row_num, column=2, value=str(emp_entries[0].get('Trade Class', '')))
-
-                # Column D: Employee rates indicator (if employee has any rates)
                 emp_info = employee_info.get(emp_name, {})
-                if emp_info.get('has_rates', False):
-                    ws.cell(row=row_num, column=4, value='*')
+                trade_class = str(emp_entries[0].get('Trade Class', '') or emp_info.get('override_trade_class', '') or '')
+                ws.cell(row=row_num, column=1, value=emp_name)
+                ws.cell(row=row_num, column=2, value=trade_class)
+
+                rate_parts = [
+                    str(emp_info.get('premium_rate', '') or '').strip(),
+                    str(emp_info.get('subsistence_rate', '') or '').strip(),
+                    str(emp_info.get('travel_rate', '') or '').strip(),
+                ]
+                rate_text = ' / '.join([part for part in rate_parts if part])
+                ws.cell(row=row_num, column=4, value=rate_text or None)
 
                 # First entry goes in columns E-I
                 if len(emp_entries) >= 1:
@@ -1087,16 +1092,12 @@ if user_type.upper() == "ADMIN":
                                 if not employee_df.empty:
                                     for _, emp_row in employee_df.iterrows():
                                         name = str(emp_row.get("Employee Name", ""))
-                                        # Check if employee has any rates (G, H, I columns)
-                                        has_rates = any([
-                                            str(emp_row.get("Premium Rate", "") or "").strip(),
-                                            str(emp_row.get("Subsistence Rate", "") or "").strip(),
-                                            str(emp_row.get("Travel Rate", "") or "").strip()
-                                        ])
                                         employee_info[name] = {
                                             'indirect': str(emp_row.get("Indirect / Direct", "")).strip().upper() == "INDIRECT",
-                                            'subsistence': str(emp_row.get("Subsistence Rate", "") or ""),
-                                            'has_rates': has_rates
+                                            'override_trade_class': str(emp_row.get("Override Trade Class", "") or ""),
+                                            'premium_rate': str(emp_row.get("Premium Rate", "") or ""),
+                                            'subsistence_rate': str(emp_row.get("Subsistence Rate", "") or ""),
+                                            'travel_rate': str(emp_row.get("Travel Rate", "") or "")
                                         }
 
                                 # Load cost codes for descriptions
