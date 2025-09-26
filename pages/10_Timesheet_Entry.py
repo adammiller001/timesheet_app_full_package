@@ -197,37 +197,27 @@ with col2:
         st.rerun()
 
 with col3:
-    if st.button("📤 Sync Excel to Cloud", help="Push Excel changes to Streamlit Cloud", type="primary"):
+    if st.button("🔄 Check File Status", help="Check if Excel file needs syncing", type="primary"):
         try:
-            import subprocess
-            import os
+            file_mtime = XLSX.stat().st_mtime if XLSX.exists() else 0
+            formatted_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(file_mtime))
 
-            # Check if there are changes to commit
-            result = subprocess.run(['git', 'status', '--porcelain'],
-                                  cwd=Path(__file__).parent.parent,
-                                  capture_output=True, text=True)
+            st.info(f"📁 Excel file last modified: {formatted_time}")
+            st.warning("⚠️ Auto-sync from Streamlit Cloud is not possible. To sync Excel changes:")
+            st.markdown("""
+            **Manual Sync Steps:**
+            1. Save changes to TimeSheet Apps.xlsx locally
+            2. Run these commands in your terminal:
+               ```bash
+               git add "TimeSheet Apps.xlsx"
+               git commit -m "Update Excel file"
+               git push
+               ```
+            3. Wait 1-2 minutes for Streamlit Cloud to redeploy
+            """)
 
-            if 'TimeSheet Apps.xlsx' in result.stdout:
-                # Commit and push Excel file
-                subprocess.run(['git', 'add', 'TimeSheet Apps.xlsx'],
-                              cwd=Path(__file__).parent.parent, check=True)
-
-                commit_msg = f"Auto-sync Excel file changes - {time.strftime('%Y-%m-%d %H:%M:%S')}"
-                subprocess.run(['git', 'commit', '-m', commit_msg],
-                              cwd=Path(__file__).parent.parent, check=True)
-
-                subprocess.run(['git', 'push'],
-                              cwd=Path(__file__).parent.parent, check=True)
-
-                st.success("📤 Excel file synced to cloud! Changes will appear in ~1 minute.")
-
-            else:
-                st.info("📁 Excel file is already up to date.")
-
-        except subprocess.CalledProcessError as e:
-            st.error(f"Sync failed: {e}")
         except Exception as e:
-            st.error(f"Error during sync: {e}")
+            st.error(f"Error checking file status: {e}")
 
 # Force fresh data reload if refresh was requested
 if st.session_state.get("force_fresh_data", False):
