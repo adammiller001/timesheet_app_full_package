@@ -387,27 +387,8 @@ def save_to_session(new_rows):
         st.error(f"Error saving to session: {e}")
         return False
 
-col1, col2 = st.columns([3, 1])
-with col1:
-    st.markdown("### Timesheet Entry")
-with col2:
-    if st.button("?? Force Reload All Data", help="Completely reload all data", type="secondary"):
-        # Clear ALL session state data except authentication
-        keys_to_keep = ["user_email", "user_type", "authenticated"]
-        for key in list(st.session_state.keys()):
-            if key not in keys_to_keep:
-                del st.session_state[key]
+st.markdown("### Timesheet Entry")
 
-        # Force fresh data flags
-        st.session_state.force_fresh_data = True
-        st.session_state.auto_fresh_data = True
-        st.session_state.data_refresh_timestamp = time.time()
-        st.session_state.xlsx_last_mtime = 0  # Force file time check
-
-        # Clear all caches
-        st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
-        st.success("?? All data cleared - Reloading...")
-        st.rerun()
 
 
 # Force fresh data reload if refresh was requested
