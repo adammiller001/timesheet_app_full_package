@@ -6,7 +6,7 @@ import streamlit as st
 WATERMARK_KEY = "_watermark_injected"
 
 
-def apply_watermark(image_path: str = "PTW.jpg", opacity: float = 0.08):
+def apply_watermark(image_path: str = "PTW.jpg", opacity: float = 0.12, max_size: int = 480):
     """Render a subtle background watermark for the entire Streamlit app."""
     if st.session_state.get(WATERMARK_KEY):
         return
@@ -20,15 +20,24 @@ def apply_watermark(image_path: str = "PTW.jpg", opacity: float = 0.08):
         encoded = base64.b64encode(img_path.read_bytes()).decode()
         css = f"""
             <style>
+            [data-testid="stAppViewContainer"] {{
+                background: transparent !important;
+            }}
             [data-testid="stAppViewContainer"]::before {{
                 content: "";
-                background: url('data:image/jpeg;base64,{encoded}') no-repeat center center fixed;
-                background-size: contain;
-                opacity: {opacity};
                 position: fixed;
                 inset: 0;
+                background-image: url('data:image/jpeg;base64,{encoded}');
+                background-repeat: no-repeat;
+                background-position: center center;
+                background-size: min({max_size}px, 60vmin);
+                opacity: {opacity};
                 pointer-events: none;
-                z-index: -1;
+                z-index: 0;
+            }}
+            section.main > div {{
+                position: relative;
+                z-index: 1;
             }}
             </style>
         """
