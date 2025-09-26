@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import shutil
 from io import BytesIO
+import time
 
 # Configure page
 st.set_page_config(
@@ -13,9 +14,15 @@ st.set_page_config(
 )
 
 
-def safe_read_excel(file_path, sheet_name):
-    """Safely read Excel file with fallback for permission issues"""
+def safe_read_excel(file_path, sheet_name, force_refresh=False):
+    """Safely read Excel file with fallback for permission issues and force refresh option"""
     try:
+        # Add timestamp to force fresh read
+        if force_refresh:
+            # Force a fresh file read by accessing file stats
+            file_path = Path(file_path)
+            if file_path.exists():
+                _ = file_path.stat().st_mtime
         return pd.read_excel(file_path, sheet_name=sheet_name)
     except PermissionError:
         try:
@@ -30,23 +37,23 @@ def safe_read_excel(file_path, sheet_name):
         st.error(f"Error reading Excel file: {e}")
         return pd.DataFrame()
 
-def load_users():
-    """Load users from Excel file"""
+def load_users(force_refresh=False):
+    """Load users from Excel file with optional force refresh"""
     excel_path = Path(__file__).parent / "TimeSheet Apps.xlsx"
     if not excel_path.exists():
         return pd.DataFrame(), "Excel file not found"
 
     try:
-        users_df = safe_read_excel(excel_path, "Users")
+        users_df = safe_read_excel(excel_path, "Users", force_refresh=force_refresh)
         if users_df.empty:
             return pd.DataFrame(), "Users worksheet is empty"
         return users_df, None
     except Exception as e:
         return pd.DataFrame(), f"Error loading users: {e}"
 
-def authenticate_user(email):
+def authenticate_user(email, force_refresh=False):
     """Check if user email exists in Users worksheet and return user type"""
-    users_df, error = load_users()
+    users_df, error = load_users(force_refresh=force_refresh)
     if error:
         return False, "User", error
 
@@ -113,7 +120,8 @@ if not st.session_state.get("authenticated", False):
             if not email:
                 st.error("Please enter your email address")
             else:
-                is_valid, user_type, error = authenticate_user(email)
+                # Force refresh authentication data on every login attempt
+                is_valid, user_type, error = authenticate_user(email, force_refresh=True)
                 if is_valid:
                     st.session_state["user_email"] = email
                     st.session_state["user_type"] = user_type

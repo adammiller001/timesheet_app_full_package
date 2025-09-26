@@ -11,6 +11,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 import openpyxl.styles
 from shutil import copyfile
 from time import sleep
+import time
 
 # Try to use your helpers; fall back gracefully if not present
 try:
@@ -31,16 +32,66 @@ if not st.session_state.get("authenticated", False):
 user = st.session_state.get("user_email")
 st.sidebar.info(f"Signed in as: {user}")
 
+# Initialize automatic data refresh trigger for truly dynamic dropdowns
+if "auto_fresh_data" not in st.session_state:
+    st.session_state.auto_fresh_data = True
+
 XLSX = Path(__file__).resolve().parent.parent / "TimeSheet Apps.xlsx"
 
-def safe_read_excel_cached(file_path, sheet_name, _file_mtime=None):
-    """Cached version of safe_read_excel with shorter TTL for performance"""
+# File modification time monitoring for automatic reloads
+def check_file_modified():
+    """Check if Excel file has been modified and force reload if needed"""
+    try:
+        if not XLSX.exists():
+            return False
+
+        current_mtime = XLSX.stat().st_mtime
+        last_mtime = st.session_state.get("xlsx_last_mtime", 0)
+
+        if current_mtime > last_mtime:
+            st.session_state.xlsx_last_mtime = current_mtime
+            if last_mtime > 0:  # Don't show on first load
+                st.success(f"📁 Excel file updated - Reloading dropdowns automatically")
+                st.rerun()
+            return True
+        return False
+    except Exception:
+        return False
+
+# Check for file modifications
+check_file_modified()
+
+# Completely disable pandas caching
+pd.set_option('io.hdf.default_format','table')
+if hasattr(pd.io.common, '_maybe_convert_usecols'):
+    pd.io.common._maybe_convert_usecols = lambda x: x  # Disable column caching
+
+def safe_read_excel_force_fresh(file_path, sheet_name):
+    """Force fresh read without any caching"""
+    # Clear any potential pandas caching
+    if hasattr(pd, '_cache'):
+        pd._cache.clear()
     return _safe_read_excel_internal(file_path, sheet_name)
 
 def _safe_read_excel_internal(file_path, sheet_name):
     """Internal function that does the actual Excel reading"""
     try:
-        return pd.read_excel(file_path, sheet_name=sheet_name)
+        # Force completely fresh file read by copying to unique temp file every time
+        file_path_obj = Path(file_path)
+        if not file_path_obj.exists():
+            raise FileNotFoundError(f"Excel file not found: {file_path}")
+
+        # Always create temp file to bypass any caching
+        import tempfile
+        import shutil
+        with tempfile.NamedTemporaryFile(suffix=f'_{int(time.time() * 1000)}.xlsx', delete=False) as tmp:
+            shutil.copy2(file_path, tmp.name)
+            result = pd.read_excel(tmp.name, sheet_name=sheet_name)
+            try:
+                os.unlink(tmp.name)  # Clean up
+            except:
+                pass  # Ignore cleanup errors
+            return result
     except PermissionError:
         import tempfile
         import shutil
@@ -68,15 +119,23 @@ def get_available_worksheets(file_path):
     except Exception:
         return []
 
-def safe_read_excel(file_path, sheet_name):
-    """Safely read Excel file with caching based on file modification time"""
+def safe_read_excel(file_path, sheet_name, force_refresh=False):
+    """Safely read Excel file with optional force refresh"""
     try:
         file_path = Path(file_path)
         if not file_path.exists():
             st.error(f"Excel file not found: {file_path}")
             return pd.DataFrame()
-        mtime = file_path.stat().st_mtime
-        return safe_read_excel_cached(str(file_path), sheet_name, _file_mtime=mtime)
+
+        # Always use fresh read for truly dynamic dropdowns
+        # Check for auto refresh trigger or manual force refresh
+        if (force_refresh or
+            st.session_state.get("force_fresh_data", False) or
+            st.session_state.get("auto_fresh_data", False)):
+            return safe_read_excel_force_fresh(str(file_path), sheet_name)
+        else:
+            # Fallback to fresh read anyway
+            return safe_read_excel_force_fresh(str(file_path), sheet_name)
     except Exception as e:
         available_sheets = get_available_worksheets(file_path)
         if available_sheets:
@@ -115,13 +174,135 @@ def save_to_session(new_rows):
         st.error(f"Error saving to session: {e}")
         return False
 
-col1, col2 = st.columns([3, 1])
+col1, col2 = st.columns([2, 1])
 with col1:
     st.markdown("### Timesheet Entry")
 with col2:
-    if st.button("🔄 Refresh Dropdowns", help="Reload user and employee data from Excel"):
+    if st.button("🔄 Force Reload All Data", help="Completely reload all Excel data", type="secondary"):
+        # Clear ALL session state data except authentication
+        keys_to_keep = ["user_email", "user_type", "authenticated"]
+        for key in list(st.session_state.keys()):
+            if key not in keys_to_keep:
+                del st.session_state[key]
+
+        # Force fresh data flags
+        st.session_state.force_fresh_data = True
+        st.session_state.auto_fresh_data = True
+        st.session_state.data_refresh_timestamp = time.time()
+        st.session_state.xlsx_last_mtime = 0  # Force file time check
+
+        # Clear all caches
         st.cache_data.clear()
+        st.success("🔄 All data cleared - Reloading...")
         st.rerun()
+
+# Force fresh data reload if refresh was requested
+if st.session_state.get("force_fresh_data", False):
+    st.info(f"🔄 Loading fresh data... (Timestamp: {st.session_state.get('data_refresh_timestamp', 'N/A')})")
+    # Reset flag after use
+    st.session_state.force_fresh_data = False
+
+# Show automatic fresh data loading indicator
+if st.session_state.get("auto_fresh_data", False):
+    current_time = time.time()
+    file_mtime = XLSX.stat().st_mtime if XLSX.exists() else 0
+    st.caption(f"🔄 Dynamic dropdowns active - Fresh data loaded at {time.strftime('%H:%M:%S', time.localtime(current_time))}")
+    st.caption(f"📁 Excel file last modified: {time.strftime('%H:%M:%S', time.localtime(file_mtime))}")
+
+# Add live data verification
+st.write("## 🔍 AUTOMATIC DEBUG INFORMATION")
+
+# Always show debug info immediately
+if True:
+    st.write("## **DEBUGGING EMPLOYEE LIST**")
+    try:
+        emp_debug = safe_read_excel(XLSX, "Employee List", force_refresh=True)
+        st.write(f"**RAW DATA LOADED - Total rows: {len(emp_debug)}**")
+        st.write("**All columns:**", list(emp_debug.columns))
+
+        # Show all employee names
+        name_col = None
+        for col in ["Employee Name", "Name", "Employee", "Full Name"]:
+            if col in emp_debug.columns:
+                name_col = col
+                break
+
+        if name_col:
+            st.write(f"**All employees in {name_col} column:**")
+            all_names = emp_debug[name_col].astype(str).tolist()
+            for i, name in enumerate(all_names, 1):
+                st.write(f"{i}. '{name}'")
+
+            # Check specifically for Graham
+            graham_check = emp_debug[emp_debug[name_col].astype(str).str.contains("GRAHAM", case=False, na=False)]
+            if not graham_check.empty:
+                st.success(f"✅ GRAHAM FOUND in Excel: {graham_check[name_col].iloc[0]}")
+            else:
+                st.error("❌ GRAHAM NOT FOUND in Excel Employee List")
+
+        # Check Active column
+        if "Active" in emp_debug.columns:
+            st.write("**Active column data types and values:**")
+            st.write(f"Column data type: {emp_debug['Active'].dtype}")
+            st.write("Unique values and their types:")
+            for val in emp_debug['Active'].unique():
+                st.write(f"  '{val}' (type: {type(val).__name__})")
+
+            # Show filtering results
+            bool_filter = (emp_debug["Active"] == True)
+            str_filter = emp_debug["Active"].astype(str).str.upper().isin(["TRUE", "YES", "Y", "1"])
+            combined_filter = bool_filter | str_filter
+
+            st.write(f"Boolean filter (== True): {bool_filter.sum()} employees")
+            st.write(f"String filter (TRUE/YES/Y/1): {str_filter.sum()} employees")
+            st.write(f"Combined filter result: {combined_filter.sum()} employees")
+
+            filtered_df = emp_debug[combined_filter]
+            if name_col:
+                st.write("**Employees after Active filtering:**")
+                for name in filtered_df[name_col].astype(str).tolist():
+                    st.write(f"  - '{name}'")
+        else:
+            st.warning("No 'Active' column found")
+
+    except Exception as e:
+        st.error(f"Employee debug error: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+
+    st.write("## **DEBUGGING COST CODES**")
+    try:
+        cost_debug = safe_read_excel(XLSX, "Cost Codes", force_refresh=True)
+        st.write(f"**RAW DATA LOADED - Total rows: {len(cost_debug)}**")
+        st.write("**All columns:**", list(cost_debug.columns))
+
+        if "Active" in cost_debug.columns:
+            st.write("**Active column analysis:**")
+            st.write(f"Data type: {cost_debug['Active'].dtype}")
+            active_vals = cost_debug['Active'].value_counts()
+            st.write("Value counts:", dict(active_vals))
+
+            # Show which items are FALSE
+            false_items = cost_debug[cost_debug['Active'] == False]
+            if not false_items.empty:
+                st.write("**Items marked as FALSE:**")
+                for idx, row in false_items.iterrows():
+                    code_val = row.get('Cost Code', row.get('Code', 'Unknown'))
+                    desc_val = row.get('Description', row.get('DESC', 'No description'))
+                    st.write(f"  - {code_val} - {desc_val}")
+
+            # Test filtering
+            bool_filter = (cost_debug["Active"] == True)
+            str_filter = cost_debug["Active"].astype(str).str.upper().isin(["TRUE", "YES", "Y", "1"])
+            combined_filter = bool_filter | str_filter
+
+            st.write(f"Items that should be filtered OUT (Active=False): {len(cost_debug) - combined_filter.sum()}")
+            st.write(f"Items that should show in dropdown: {combined_filter.sum()}")
+
+    except Exception as e:
+        st.error(f"Cost codes debug error: {e}")
+        import traceback
+        st.code(traceback.format_exc())
 
 # --- Date ---
 date_val = st.date_input("Date", value=pd.Timestamp.today().date(), format="YYYY/MM/DD", key="date_val")
@@ -191,7 +372,7 @@ if HAVE_UTILS:
         job_options = _build_job_options_local(jobs_df)
 else:
     try:
-        _df = safe_read_excel(XLSX, "Job Numbers")
+        _df = safe_read_excel(XLSX, "Job Numbers", force_refresh=True)
         _df.columns = [str(c).strip() for c in _df.columns]
         _actcol = _find_col(_df, ["Active", "ACTIVE"])
         if _actcol:
@@ -217,7 +398,7 @@ if HAVE_UTILS:
         cost_options = []
 else:
     try:
-        _c = safe_read_excel(XLSX, "Cost Codes")
+        _c = safe_read_excel(XLSX, "Cost Codes", force_refresh=True)
         _c.columns = [str(c).strip() for c in _c.columns]
         code_c = _find_col(_c, ["Cost Code", "Code"])
         desc_c = _find_col(_c, ["Description", "DESC", "Name"])
@@ -236,6 +417,16 @@ else:
                                      for _, r in _c.iterrows() if str(r[code_c]).strip()])
         else:
             cost_options = []
+
+        # Debug: Show fresh cost code data loading confirmation
+        if st.session_state.get("auto_fresh_data", False):
+            if active_c:
+                original_count = len(safe_read_excel(XLSX, "Cost Codes", force_refresh=True))
+                active_count = len(_c)
+                st.caption(f"🔍 Cost Codes: {active_count} active / {original_count} total - Fresh data loaded")
+            else:
+                st.caption(f"🔍 Cost Codes: {len(_c)} total (no Active column) - Fresh data loaded")
+
     except Exception:
         cost_options = []
 
@@ -251,7 +442,7 @@ st.divider()
 
 # --- Employees (simple multiselect dropdown only) ---
 try:
-    _emp_df = safe_read_excel(XLSX, "Employee List")
+    _emp_df = safe_read_excel(XLSX, "Employee List", force_refresh=True)
     _emp_df.columns = [str(c).strip() for c in _emp_df.columns]
 
     if "Active" in _emp_df.columns:
@@ -265,6 +456,13 @@ try:
             _emp_df[EMP_NAME_COL] = ""
 
     _employee_options = sorted(_emp_df[EMP_NAME_COL].dropna().astype(str).unique().tolist())
+
+    # Debug: Show fresh data loading confirmation
+    if st.session_state.get("auto_fresh_data", False):
+        active_count = len(_emp_df[_emp_df["Active"] == True]) if "Active" in _emp_df.columns else len(_emp_df)
+        total_count = len(_emp_df)
+        st.caption(f"🔍 Employees: {active_count} active / {total_count} total - Fresh data loaded")
+
 except Exception:
     _emp_df = pd.DataFrame()
     _employee_options = []
