@@ -973,7 +973,9 @@ if user_type.upper() == "ADMIN":
     st.subheader("Export to Templates")
 
     try:
-        time_data_for_export = safe_read_excel(XLSX, "Time Data")
+        time_data_for_export = smart_read_data("Time Data", force_refresh=True)
+        if time_data_for_export.empty:
+            time_data_for_export = safe_read_excel(XLSX, "Time Data")
         if not time_data_for_export.empty:
 
             def _prepare_employee_entries(entries):
