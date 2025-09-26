@@ -5,6 +5,7 @@ import tempfile
 import shutil
 from io import BytesIO
 import time
+from app.style_utils import apply_watermark
 
 try:
     from app.integrations.google_sheets import read_timesheet_data, get_sheets_manager
@@ -20,6 +21,8 @@ st.set_page_config(
     page_icon="⏰",
     layout="wide"
 )
+
+apply_watermark()
 
 
 def safe_read_excel(file_path, sheet_name, force_refresh=False):

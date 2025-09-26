@@ -12,7 +12,10 @@ import openpyxl.styles
 from shutil import copyfile
 from time import sleep
 import time
+from app.style_utils import apply_watermark
 from datetime import datetime, date
+
+apply_watermark()
 
 # Try to use your helpers; fall back gracefully if not present
 try:
@@ -1391,3 +1394,4 @@ if user_type.upper() == "ADMIN":
 else:
     st.divider()
     st.info("⚠️ Admin access required to export templates.")
+
