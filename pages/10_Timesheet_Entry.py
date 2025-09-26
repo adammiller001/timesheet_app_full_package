@@ -958,12 +958,18 @@ if user_type.upper() == "ADMIN":
                 ws.cell(row=row_num, column=1, value=emp_name)
                 ws.cell(row=row_num, column=2, value=trade_class)
 
-                rate_values = [
-                    str(emp_info.get('premium_rate', '') or '').strip(),
-                    str(emp_info.get('subsistence_rate', '') or '').strip(),
-                    str(emp_info.get('travel_rate', '') or '').strip(),
-                ]
-                rate_value = next((val for val in rate_values if val), '')
+                rate_values = []
+                for key in ('premium_rate', 'subsistence_rate', 'travel_rate'):
+                    raw_val = emp_info.get(key, '')
+                    if raw_val is None:
+                        raw_val = ''
+                    val = str(raw_val).strip()
+                    if val.lower() == 'nan':
+                        val = ''
+                    if val:
+                        rate_values.append(val)
+
+                rate_value = rate_values[0] if rate_values else ''
                 ws.cell(row=row_num, column=4, value=rate_value or None)
 
                 # First entry goes in columns E-I
