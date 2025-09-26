@@ -184,8 +184,86 @@ def get_time_data_from_session(_date_filter=None):
         st.error(f"Error reading session time data: {e}")
         return pd.DataFrame()
 
+def _sync_time_data_to_google(new_data_df: pd.DataFrame) -> bool:
+    """Push new time data rows to Google Sheets when available"""
+    if new_data_df.empty:
+        return True
+
+    if not (
+        HAVE_GOOGLE_SHEETS
+        and "google_sheets_id" in st.secrets
+        and st.secrets["google_sheets_id"]
+    ):
+        return True
+
+    try:
+        sheet_id = st.secrets["google_sheets_id"]
+        manager = get_sheets_manager()
+        sheet_candidates = ("Time Data", "TimeData")
+        worksheet, actual_title = manager.find_worksheet(sheet_candidates, sheet_id)
+
+        if not worksheet or not actual_title:
+            st.warning("Time Data worksheet not found in Google Sheets. Please ensure a tab named 'Time Data' exists.")
+            return False
+
+        df_to_sync = new_data_df.copy()
+        if df_to_sync.empty:
+            return True
+
+        df_to_sync.columns = [str(col).strip() for col in df_to_sync.columns]
+        df_to_sync = df_to_sync[[col for col in df_to_sync.columns if col]]
+        df_to_sync = df_to_sync.where(pd.notnull(df_to_sync), None)
+
+        header_values = worksheet.row_values(1)
+        headers = [str(cell).strip() for cell in header_values if str(cell).strip()]
+
+        if not headers:
+            all_values = worksheet.get_all_values()
+            for row in all_values:
+                cleaned = [str(cell).strip() for cell in row if str(cell).strip()]
+                if cleaned:
+                    headers = [str(cell).strip() for cell in row if str(cell).strip()]
+                    break
+
+        if not headers:
+            manager.write_worksheet(actual_title, df_to_sync, sheet_id)
+            return True
+
+        def _norm(col_name: str) -> str:
+            return ''.join(ch for ch in str(col_name).strip().lower() if ch.isalnum())
+
+        df_lookup = {_norm(col): col for col in df_to_sync.columns}
+        rows_to_append = []
+
+        for _, row in df_to_sync.iterrows():
+            row_values = []
+            for header in headers:
+                source_col = df_lookup.get(_norm(header))
+                value = row[source_col] if source_col else None
+                if pd.isna(value):
+                    value = None
+                elif isinstance(value, pd.Timestamp):
+                    value = value.strftime("%Y-%m-%d")
+                elif hasattr(value, "item") and not isinstance(value, (str, bytes)):
+                    try:
+                        value = value.item()
+                    except Exception:
+                        value = str(value)
+                row_values.append(value)
+            rows_to_append.append(row_values)
+
+        if not rows_to_append:
+            return True
+
+        return manager.append_rows(actual_title, rows_to_append, sheet_id)
+
+    except Exception as e:
+        st.error(f"Failed to sync Time Data to Google Sheets: {e}")
+        return False
+
+
 def save_to_session(new_rows):
-    """Save new rows to session state (Excel file is read-only on cloud)"""
+    """Save new rows to session state and sync to Google Sheets when configured"""
     try:
         new_data_df = pd.DataFrame(new_rows)
 
@@ -194,6 +272,10 @@ def save_to_session(new_rows):
             st.session_state.session_time_data = pd.concat([st.session_state.session_time_data, new_data_df], ignore_index=True)
         else:
             st.session_state.session_time_data = new_data_df
+
+        synced = _sync_time_data_to_google(new_data_df)
+        if not synced:
+            st.warning("Added lines locally, but could not update Google Sheets Time Data.")
 
         return True
     except Exception as e:
@@ -408,11 +490,16 @@ if "form_counter" not in st.session_state:
 
 # Initialize session-based Time Data storage
 if "session_time_data" not in st.session_state:
-    # Load initial data from Excel file
+    # Load initial data with Google Sheets support
     try:
-        initial_data = pd.read_excel(XLSX, sheet_name="Time Data")
+        initial_data = smart_read_data("Time Data", force_refresh=True)
+    except Exception as e:
+        st.warning(f"Failed to load Time Data from configured sources: {e}")
+        initial_data = pd.DataFrame()
+
+    if isinstance(initial_data, pd.DataFrame) and (not initial_data.empty or len(initial_data.columns) > 0):
         st.session_state.session_time_data = initial_data
-    except Exception:
+    else:
         st.session_state.session_time_data = pd.DataFrame(columns=[
             "Job Number", "Job Area", "Date", "Name", "Trade Class",
             "Employee Number", "RT Hours", "OT Hours", "Description of work",

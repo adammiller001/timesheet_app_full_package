@@ -6,6 +6,14 @@ import shutil
 from io import BytesIO
 import time
 
+try:
+    from app.integrations.google_sheets import read_timesheet_data, get_sheets_manager
+    HAVE_GOOGLE_SHEETS = True
+except Exception:
+    HAVE_GOOGLE_SHEETS = False
+    read_timesheet_data = None
+    get_sheets_manager = None
+
 # Configure page
 st.set_page_config(
     page_title="PTW - Daily Timesheet Suite",
@@ -38,18 +46,70 @@ def safe_read_excel(file_path, sheet_name, force_refresh=False):
         return pd.DataFrame()
 
 def load_users(force_refresh=False):
-    """Load users from Excel file with optional force refresh"""
+    """Load users from Google Sheets when available, fallback to Excel"""
+    google_error = None
+    sheet_candidates = ("Users", "User")
+
+    if (
+        HAVE_GOOGLE_SHEETS
+        and read_timesheet_data
+        and "google_sheets_id" in st.secrets
+        and st.secrets["google_sheets_id"]
+    ):
+        sheet_id = st.secrets["google_sheets_id"]
+        manager = get_sheets_manager()
+        if force_refresh and hasattr(manager, "spreadsheet"):
+            manager.spreadsheet = None
+        worksheet, actual_title = manager.find_worksheet(sheet_candidates, sheet_id)
+
+        if worksheet and actual_title:
+            try:
+                users_df = manager.read_worksheet(actual_title, sheet_id)
+                if not users_df.empty:
+                    return users_df, None
+                else:
+                    google_error = f"Google Sheets worksheet '{actual_title}' is empty"
+            except Exception as e:
+                google_error = f"Google Sheets error: {e}"
+                st.warning(f"Google Sheets unavailable, falling back to Excel: {e}")
+        else:
+            google_error = "Users worksheet not found in Google Sheets"
+
     excel_path = Path(__file__).parent / "TimeSheet Apps.xlsx"
     if not excel_path.exists():
-        return pd.DataFrame(), "Excel file not found"
+        return pd.DataFrame(), (google_error or "Excel file not found")
 
     try:
-        users_df = safe_read_excel(excel_path, "Users", force_refresh=force_refresh)
-        if users_df.empty:
-            return pd.DataFrame(), "Users worksheet is empty"
-        return users_df, None
+        available_sheets = pd.ExcelFile(excel_path).sheet_names
     except Exception as e:
-        return pd.DataFrame(), f"Error loading users: {e}"
+        message = f"Unable to read Excel workbook: {e}"
+        if google_error:
+            message = f"{google_error}. {message}"
+        return pd.DataFrame(), message
+
+    def _match_sheet_name(target, sheets):
+        target_norm = target.strip().lower()
+        for sheet in sheets:
+            if sheet.strip().lower() == target_norm:
+                return sheet
+        return None
+
+    for candidate in sheet_candidates:
+        sheet_name = _match_sheet_name(candidate, available_sheets)
+        if sheet_name:
+            try:
+                users_df = safe_read_excel(excel_path, sheet_name, force_refresh=force_refresh)
+                if not users_df.empty:
+                    users_df.columns = [str(col).strip() for col in users_df.columns]
+                    return users_df, None
+            except Exception:
+                # safe_read_excel already surfaces a user-facing error
+                continue
+
+    message = "Users worksheet is empty"
+    if google_error:
+        message = f"{message} (previous issue: {google_error})"
+    return pd.DataFrame(), message
 
 def authenticate_user(email, force_refresh=False):
     """Check if user email exists in Users worksheet and return user type"""
@@ -62,11 +122,13 @@ def authenticate_user(email, force_refresh=False):
 
     # Look for email in various possible column names
     email_columns = ["Email", "User Email", "Email Address", "Login Email", "User's Email Address"]
+    normalized_columns = {str(col).strip().lower(): col for col in users_df.columns}
     email_col = None
 
     for col in email_columns:
-        if col in users_df.columns:
-            email_col = col
+        actual_col = normalized_columns.get(col.strip().lower())
+        if actual_col:
+            email_col = actual_col
             break
 
     if not email_col:
@@ -78,15 +140,25 @@ def authenticate_user(email, force_refresh=False):
         return False, "User", "Email not found in users list"
 
     # Check user type (Admin or User)
-    user_type = "User"  # Default
-    if "User Type" in users_df.columns:
-        user_type = str(user_row["User Type"].iloc[0]).strip()
-    elif "Role" in users_df.columns:
-        user_type = str(user_row["Role"].iloc[0]).strip()
-    elif "Access Level" in users_df.columns:
-        user_type = str(user_row["Access Level"].iloc[0]).strip()
+    type_candidates = ["User Type", "UserType", "Role", "Access Level", "Type"]
+    raw_user_type = "User"  # Default
+    for candidate in type_candidates:
+        actual_col = normalized_columns.get(candidate.strip().lower())
+        if actual_col and actual_col in users_df.columns:
+            raw_user_type = users_df.loc[user_row.index, actual_col].iloc[0]
+            break
 
-    return True, user_type, None
+    user_type_clean = str(raw_user_type).strip() if raw_user_type is not None else ""
+    user_type_upper = user_type_clean.upper()
+
+    if "ADMIN" in user_type_upper:
+        normalized_type = "Admin"
+    elif user_type_upper in {"USER", "STANDARD", "EMPLOYEE"}:
+        normalized_type = "User"
+    else:
+        normalized_type = user_type_clean or "User"
+
+    return True, normalized_type, None
 
 # Force clear any potentially corrupt session state
 if st.session_state.get("authenticated") and not st.session_state.get("user_email"):

@@ -11,6 +11,15 @@ import json
 from typing import Optional, Dict, Any
 import time
 
+
+
+def _normalize_title(name: str) -> str:
+    """Normalize worksheet titles for comparison"""
+    if not name:
+        return ""
+    return ''.join(ch for ch in str(name).strip().lower() if ch.isalnum())
+
+
 class GoogleSheetsManager:
     """Manages Google Sheets integration for timesheet data"""
 
@@ -46,6 +55,41 @@ class GoogleSheetsManager:
             st.error(f"Failed to connect to Google Sheets: {e}")
             return False
 
+    def find_worksheet(self, possible_names, spreadsheet_id: Optional[str] = None):
+        """Locate a worksheet by trying multiple candidate names. Returns (worksheet, actual_title)."""
+        try:
+            if spreadsheet_id and not self.spreadsheet:
+                if not self.get_spreadsheet(spreadsheet_id):
+                    return None, None
+
+            if not self.spreadsheet:
+                st.error("No spreadsheet connected")
+                return None, None
+
+            worksheets = self.spreadsheet.worksheets()
+            if not worksheets:
+                return None, None
+
+            normalized_map = {_normalize_title(ws.title): ws for ws in worksheets}
+
+            for name in possible_names:
+                key = _normalize_title(name)
+                if key in normalized_map:
+                    ws = normalized_map[key]
+                    return ws, ws.title
+
+            # Fallback to partial matches
+            for name in possible_names:
+                key = _normalize_title(name)
+                for ws in worksheets:
+                    if key and key in _normalize_title(ws.title):
+                        return ws, ws.title
+
+            return None, None
+        except Exception as e:
+            st.error(f"Failed to inspect worksheets: {e}")
+            return None, None
+
     def get_spreadsheet(self, spreadsheet_id: str):
         """Get spreadsheet by ID"""
         try:
@@ -70,6 +114,11 @@ class GoogleSheetsManager:
 
             return None
 
+    def get_worksheet(self, worksheet_name: str, spreadsheet_id: Optional[str] = None):
+        """Get a worksheet object if it exists"""
+        worksheet, _ = self.find_worksheet([worksheet_name], spreadsheet_id)
+        return worksheet
+
     def read_worksheet(self, worksheet_name: str, spreadsheet_id: Optional[str] = None) -> pd.DataFrame:
         """Read data from a worksheet and return as DataFrame"""
         try:
@@ -81,8 +130,10 @@ class GoogleSheetsManager:
                 st.error("No spreadsheet connected")
                 return pd.DataFrame()
 
-            # Get the worksheet
-            worksheet = self.spreadsheet.worksheet(worksheet_name)
+            worksheet, _ = self.find_worksheet([worksheet_name], spreadsheet_id)
+            if not worksheet:
+                st.error(f"Worksheet '{worksheet_name}' not found")
+                return pd.DataFrame()
 
             # Get all values
             data = worksheet.get_all_records()
@@ -90,18 +141,40 @@ class GoogleSheetsManager:
             # Convert to DataFrame
             df = pd.DataFrame(data)
 
-            # Convert boolean-like strings to actual booleans for Active columns
-            if 'Active' in df.columns:
-                df['Active'] = df['Active'].astype(str).str.upper().map({
-                    'TRUE': True, 'FALSE': False, 'YES': True, 'NO': False,
-                    'Y': True, 'N': False, '1': True, '0': False
-                }).fillna(df['Active'])
+            if not df.empty:
+                df.columns = [str(col).strip() for col in df.columns]
+                df = df[[col for col in df.columns if col and col.strip()]]
+
+                # Convert boolean-like strings to actual booleans for Active columns
+                if 'Active' in df.columns:
+                    df['Active'] = df['Active'].astype(str).str.upper().map({
+                        'TRUE': True, 'FALSE': False, 'YES': True, 'NO': False,
+                        'Y': True, 'N': False, '1': True, '0': False
+                    }).fillna(df['Active'])
 
             return df
 
         except Exception as e:
             st.error(f"Failed to read worksheet '{worksheet_name}': {e}")
             return pd.DataFrame()
+
+    def append_rows(self, worksheet_name: str, rows: list, spreadsheet_id: Optional[str] = None, value_input_option: str = "USER_ENTERED") -> bool:
+        """Append rows to a worksheet without overwriting existing data"""
+        if not rows:
+            return True
+
+        try:
+            worksheet, _ = self.find_worksheet([worksheet_name], spreadsheet_id)
+            if not worksheet:
+                st.error(f"Worksheet '{worksheet_name}' not found when attempting to append rows")
+                return False
+
+            worksheet.append_rows(rows, value_input_option=value_input_option)
+            return True
+
+        except Exception as e:
+            st.error(f"Failed to append to worksheet '{worksheet_name}': {e}")
+            return False
 
     def write_worksheet(self, worksheet_name: str, data: pd.DataFrame, spreadsheet_id: Optional[str] = None) -> bool:
         """Write DataFrame to a worksheet"""
@@ -114,14 +187,16 @@ class GoogleSheetsManager:
                 st.error("No spreadsheet connected")
                 return False
 
-            # Get the worksheet
-            worksheet = self.spreadsheet.worksheet(worksheet_name)
+            worksheet, _ = self.find_worksheet([worksheet_name], spreadsheet_id)
+            if not worksheet:
+                st.error(f"Worksheet '{worksheet_name}' not found")
+                return False
 
             # Clear existing data
             worksheet.clear()
 
             # Convert DataFrame to list of lists
-            values = [data.columns.tolist()] + data.values.tolist()
+            values = [list(map(str, data.columns.tolist()))] + data.values.tolist()
 
             # Update the worksheet
             worksheet.update(values)
