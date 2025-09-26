@@ -57,7 +57,17 @@ class GoogleSheetsManager:
             return self.spreadsheet
 
         except Exception as e:
-            st.error(f"Failed to open spreadsheet: {e}")
+            st.error(f"❌ Failed to access spreadsheet ID: {spreadsheet_id}")
+            st.error(f"Error details: {e}")
+
+            # Check if it's a permissions issue
+            if "403" in str(e):
+                st.error("🔒 Permission denied - Make sure you shared the spreadsheet with the service account")
+            elif "400" in str(e):
+                st.error("📄 Document format issue - Make sure the file is converted to Google Sheets format")
+            elif "404" in str(e):
+                st.error("🔍 Spreadsheet not found - Check the spreadsheet ID")
+
             return None
 
     def read_worksheet(self, worksheet_name: str, spreadsheet_id: Optional[str] = None) -> pd.DataFrame:
