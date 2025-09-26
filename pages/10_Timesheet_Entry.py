@@ -12,6 +12,7 @@ import openpyxl.styles
 from shutil import copyfile
 from time import sleep
 import time
+from datetime import datetime, date
 
 # Try to use your helpers; fall back gracefully if not present
 try:
@@ -116,20 +117,31 @@ def _safe_read_excel_internal(file_path, sheet_name):
         st.error(f"Error reading Excel file: {e}")
         return pd.DataFrame()
 
-def smart_read_data(sheet_name, force_refresh=False):
-    """Smart data reader that uses Google Sheets when available, falls back to Excel"""
+@st.cache_data(show_spinner=False, ttl=60)
+def _cached_sheet_data(sheet_name: str, cache_token: int):
     try:
-        # Try Google Sheets first if configured
-        if HAVE_GOOGLE_SHEETS and "google_sheets_id" in st.secrets:
-            try:
-                df = read_timesheet_data(sheet_name)
-                if not df.empty:
-                    return df
-            except Exception as e:
-                st.warning(f"Google Sheets unavailable, falling back to Excel: {e}")
+        df = read_timesheet_data(sheet_name)
+        if isinstance(df, pd.DataFrame):
+            return df
+    except Exception as e:
+        st.warning(f"Google Sheets read issue for {sheet_name}: {e}")
+    return pd.DataFrame()
 
-        # Fallback to Excel file
-        return safe_read_excel(XLSX, sheet_name, force_refresh)
+
+def smart_read_data(sheet_name, force_refresh=False):
+    """Smart data reader that minimizes Google Sheets requests and falls back gracefully"""
+    try:
+        cache_token = st.session_state.get("sheet_cache_token", 0)
+        if force_refresh:
+            cache_token += 1
+            st.session_state["sheet_cache_token"] = cache_token
+
+        df = _cached_sheet_data(sheet_name, cache_token)
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            return df.copy()
+
+        # Fallback to Excel file if Google Sheets unavailable or empty
+        return safe_read_excel(XLSX, sheet_name, force_refresh=True)
     except Exception as e:
         st.error(f"Failed to load {sheet_name}: {e}")
         return pd.DataFrame()
@@ -183,6 +195,39 @@ def get_time_data_from_session(_date_filter=None):
     except Exception as e:
         st.error(f"Error reading session time data: {e}")
         return pd.DataFrame()
+
+def _normalize_sheet_value(value):
+    if value is None:
+        return ''
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, bool):
+        return 'TRUE' if value else 'FALSE'
+    if isinstance(value, (int, float)):
+        if pd.isna(value):
+            return ''
+        return ("{0:.15g}".format(float(value))).rstrip('.0') if float(value).is_integer() else "{0:.15g}".format(float(value))
+    if isinstance(value, pd.Timestamp):
+        return value.strftime('%Y-%m-%d')
+    if isinstance(value, datetime):
+        return value.strftime('%Y-%m-%d')
+    if isinstance(value, date):
+        return value.strftime('%Y-%m-%d')
+    try:
+        if pd.isna(value):
+            return ''
+    except Exception:
+        pass
+    return str(value).strip()
+
+
+def _build_sheet_row(row_dict, headers):
+    normalized = []
+    for header in headers:
+        value = row_dict.get(header)
+        normalized.append(_normalize_sheet_value(value))
+    return normalized
+
 
 def _sync_time_data_to_google(new_data_df: pd.DataFrame) -> bool:
     """Push new time data rows to Google Sheets when available"""
@@ -262,6 +307,63 @@ def _sync_time_data_to_google(new_data_df: pd.DataFrame) -> bool:
         return False
 
 
+def _replace_time_data_in_google(updated_df: pd.DataFrame) -> bool:
+    """Write the provided DataFrame to the Google Sheets Time Data worksheet"""
+    if not (
+        HAVE_GOOGLE_SHEETS
+        and "google_sheets_id" in st.secrets
+        and st.secrets["google_sheets_id"]
+    ):
+        return True
+
+    try:
+        sheet_id = st.secrets["google_sheets_id"]
+        manager = get_sheets_manager()
+        sheet_candidates = ("Time Data", "TimeData")
+        worksheet, actual_title = manager.find_worksheet(sheet_candidates, sheet_id)
+
+        if not worksheet or not actual_title:
+            st.warning("Time Data worksheet not found in Google Sheets. Please ensure a tab named 'Time Data' exists.")
+            return False
+
+        header_values = worksheet.row_values(1)
+        headers = [str(cell).strip() for cell in header_values if str(cell).strip()]
+
+        df_to_write = updated_df.copy()
+        df_to_write.columns = [str(col).strip() for col in df_to_write.columns]
+
+        if headers:
+            for header in headers:
+                if header not in df_to_write.columns:
+                    df_to_write[header] = ''
+            df_to_write = df_to_write[headers]
+        elif not df_to_write.empty:
+            headers = list(df_to_write.columns)
+        else:
+            headers = [
+                "Job Number", "Job Area", "Date", "Name", "Trade Class",
+                "Employee Number", "RT Hours", "OT Hours", "Description of work",
+                "Comments", "Night Shift", "Premium Rate", "Subsistence Rate",
+                "Travel Rate", "Indirect", "Cost Code"
+            ]
+            for header in headers:
+                if header not in df_to_write.columns:
+                    df_to_write[header] = ''
+            df_to_write = df_to_write[headers]
+
+        if not df_to_write.empty:
+            df_to_write = df_to_write.applymap(_normalize_sheet_value)
+        else:
+            df_to_write = df_to_write.astype(str)
+
+        success = manager.write_worksheet(actual_title, df_to_write, sheet_id)
+        return success
+
+    except Exception as e:
+        st.error(f"Failed to update Time Data in Google Sheets: {e}")
+        return False
+
+
 def save_to_session(new_rows):
     """Save new rows to session state and sync to Google Sheets when configured"""
     try:
@@ -300,7 +402,7 @@ with col2:
         st.session_state.xlsx_last_mtime = 0  # Force file time check
 
         # Clear all caches
-        st.cache_data.clear()
+        st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
         st.success("🔄 All data cleared - Reloading...")
         st.rerun()
 
@@ -492,7 +594,7 @@ if "form_counter" not in st.session_state:
 if "session_time_data" not in st.session_state:
     # Load initial data with Google Sheets support
     try:
-        initial_data = smart_read_data("Time Data", force_refresh=True)
+        initial_data = smart_read_data("Time Data")
     except Exception as e:
         st.warning(f"Failed to load Time Data from configured sources: {e}")
         initial_data = pd.DataFrame()
@@ -554,7 +656,7 @@ if HAVE_UTILS:
         job_options = _build_job_options_local(jobs_df)
 else:
     try:
-        _df = smart_read_data("Job Numbers", force_refresh=True)
+        _df = smart_read_data("Job Numbers")
         _df.columns = [str(c).strip() for c in _df.columns]
         _actcol = _find_col(_df, ["Active", "ACTIVE"])
         if _actcol:
@@ -580,7 +682,7 @@ if HAVE_UTILS:
         cost_options = []
 else:
     try:
-        _c = smart_read_data("Cost Codes", force_refresh=True)
+        _c = smart_read_data("Cost Codes")
         _c.columns = [str(c).strip() for c in _c.columns]
         code_c = _find_col(_c, ["Cost Code", "Code"])
         desc_c = _find_col(_c, ["Description", "DESC", "Name"])
@@ -617,7 +719,7 @@ st.divider()
 
 # --- Employees (simple multiselect dropdown only) ---
 try:
-    _emp_df = smart_read_data("Employee List", force_refresh=True)
+    _emp_df = smart_read_data("Employee List")
     _emp_df.columns = [str(c).strip() for c in _emp_df.columns]
 
     if "Active" in _emp_df.columns:
@@ -750,7 +852,7 @@ with col1:
     st.subheader("Current Time Data")
 with col2:
     if st.button("🔄 Refresh Data", help="Clear cache and reload Time Data"):
-        st.cache_data.clear()
+        st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
         st.rerun()
 
 try:
@@ -815,8 +917,12 @@ try:
                                     indices_to_delete.append(actual_index)
 
                             if indices_to_delete:
-                                # Update session state data
-                                st.session_state.session_time_data = total_data.drop(index=indices_to_delete).reset_index(drop=True)
+                                updated_data = total_data.drop(index=indices_to_delete).reset_index(drop=True)
+                                synced = _replace_time_data_in_google(updated_data)
+                                if not synced:
+                                    st.warning("Deleted entries locally, but could not update Google Sheets.")
+
+                                st.session_state.session_time_data = updated_data
                                 st.success(f"Deleted {len(indices_to_delete)} selected entries from {date_val}.")
                                 st.rerun()
                             else:
@@ -836,10 +942,13 @@ try:
                 if delete_all_button:
                     with st.spinner("Deleting all entries..."):
                         try:
-                            # Update session state - keep entries from other dates
                             remaining_data = total_data[
                                 pd.to_datetime(total_data["Date"]).dt.strftime("%Y-%m-%d") != selected_date_str
                             ].reset_index(drop=True) if not total_data.empty else pd.DataFrame()
+
+                            synced = _replace_time_data_in_google(remaining_data)
+                            if not synced:
+                                st.warning("Deleted entries locally, but could not update Google Sheets.")
 
                             st.session_state.session_time_data = remaining_data
                             st.success(f"Deleted {filtered_entries} entries from {date_val}.")

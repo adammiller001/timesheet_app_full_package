@@ -6,6 +6,7 @@ Replaces Excel file dependency with cloud-based Google Sheets
 import streamlit as st
 import pandas as pd
 import gspread
+from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 import json
 from typing import Optional, Dict, Any
@@ -27,6 +28,10 @@ class GoogleSheetsManager:
         self.gc = None
         self.spreadsheet = None
         self._last_connection_time = 0
+        self._worksheet_cache = {
+            'timestamp': 0,
+            'worksheets': []
+        }
 
     def connect(self) -> bool:
         """Connect to Google Sheets using service account credentials"""
@@ -49,6 +54,10 @@ class GoogleSheetsManager:
             # Connect to Google Sheets
             self.gc = gspread.authorize(credentials)
             self._last_connection_time = time.time()
+            self._worksheet_cache = {
+                'timestamp': 0,
+                'worksheets': []
+            }
             return True
 
         except Exception as e:
@@ -66,7 +75,13 @@ class GoogleSheetsManager:
                 st.error("No spreadsheet connected")
                 return None, None
 
-            worksheets = self.spreadsheet.worksheets()
+            cache_ttl = 30
+            now = time.time()
+            if not self._worksheet_cache['worksheets'] or (now - self._worksheet_cache['timestamp']) > cache_ttl:
+                self._worksheet_cache['worksheets'] = self.spreadsheet.worksheets()
+                self._worksheet_cache['timestamp'] = now
+
+            worksheets = self._worksheet_cache['worksheets']
             if not worksheets:
                 return None, None
 
@@ -86,6 +101,12 @@ class GoogleSheetsManager:
                         return ws, ws.title
 
             return None, None
+        except APIError as e:
+            if e.response.status_code == 429:
+                st.warning("Google Sheets rate limit reached while listing worksheets. Please wait a few seconds and try again.")
+                return None, None
+            st.error(f"Failed to inspect worksheets: {e}")
+            return None, None
         except Exception as e:
             st.error(f"Failed to inspect worksheets: {e}")
             return None, None
@@ -98,6 +119,10 @@ class GoogleSheetsManager:
                     return None
 
             self.spreadsheet = self.gc.open_by_key(spreadsheet_id)
+            self._worksheet_cache = {
+                'timestamp': time.time(),
+                'worksheets': []
+            }
             return self.spreadsheet
 
         except Exception as e:
@@ -136,7 +161,13 @@ class GoogleSheetsManager:
                 return pd.DataFrame()
 
             # Get all values
-            data = worksheet.get_all_records()
+            try:
+                data = worksheet.get_all_records()
+            except APIError as e:
+                if e.response.status_code == 429:
+                    st.warning("Google Sheets rate limit reached while reading data. Please wait a few seconds and try again.")
+                    return pd.DataFrame()
+                raise
 
             # Convert to DataFrame
             df = pd.DataFrame(data)
@@ -169,9 +200,21 @@ class GoogleSheetsManager:
                 st.error(f"Worksheet '{worksheet_name}' not found when attempting to append rows")
                 return False
 
-            worksheet.append_rows(rows, value_input_option=value_input_option)
+            try:
+                worksheet.append_rows(rows, value_input_option=value_input_option)
+            except APIError as e:
+                if e.response.status_code == 429:
+                    st.warning("Google Sheets rate limit reached while writing data. Please wait a few seconds and try again.")
+                    return False
+                raise
             return True
 
+        except APIError as e:
+            if e.response.status_code == 429:
+                st.warning("Google Sheets rate limit reached while writing data. Please wait a few seconds and try again.")
+                return False
+            st.error(f"Failed to append to worksheet '{worksheet_name}': {e}")
+            return False
         except Exception as e:
             st.error(f"Failed to append to worksheet '{worksheet_name}': {e}")
             return False
@@ -199,10 +242,22 @@ class GoogleSheetsManager:
             values = [list(map(str, data.columns.tolist()))] + data.values.tolist()
 
             # Update the worksheet
-            worksheet.update(values)
+            try:
+                worksheet.update(values)
+            except APIError as e:
+                if e.response.status_code == 429:
+                    st.warning("Google Sheets rate limit reached while writing data. Please wait a few seconds and try again.")
+                    return False
+                raise
 
             return True
 
+        except APIError as e:
+            if e.response.status_code == 429:
+                st.warning("Google Sheets rate limit reached while writing data. Please wait a few seconds and try again.")
+                return False
+            st.error(f"Failed to write to worksheet '{worksheet_name}': {e}")
+            return False
         except Exception as e:
             st.error(f"Failed to write to worksheet '{worksheet_name}': {e}")
             return False
