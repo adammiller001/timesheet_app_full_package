@@ -977,13 +977,13 @@ if user_type.upper() == "ADMIN":
                 ws.cell(row=row_num, column=1, value=emp_name)
                 ws.cell(row=row_num, column=2, value=trade_class)
 
-                rate_parts = [
+                rate_values = [
                     str(emp_info.get('premium_rate', '') or '').strip(),
                     str(emp_info.get('subsistence_rate', '') or '').strip(),
                     str(emp_info.get('travel_rate', '') or '').strip(),
                 ]
-                rate_text = ' / '.join([part for part in rate_parts if part])
-                ws.cell(row=row_num, column=4, value=rate_text or None)
+                rate_value = next((val for val in rate_values if val), '')
+                ws.cell(row=row_num, column=4, value=rate_value or None)
 
                 # First entry goes in columns E-I
                 if len(emp_entries) >= 1:
