@@ -123,7 +123,6 @@ def smart_read_data(sheet_name, force_refresh=False):
             try:
                 df = read_timesheet_data(sheet_name)
                 if not df.empty:
-                    st.caption(f"📊 Data loaded from Google Sheets (real-time)")
                     return df
             except Exception as e:
                 st.warning(f"Google Sheets unavailable, falling back to Excel: {e}")
@@ -203,11 +202,6 @@ def save_to_session(new_rows):
 col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
     st.markdown("### Timesheet Entry")
-    # Show data source status
-    if HAVE_GOOGLE_SHEETS and "google_sheets_id" in st.secrets:
-        st.success("🔗 Connected to Google Sheets - Real-time sync enabled")
-    else:
-        st.info("📁 Using Excel files - Manual sync required")
 with col2:
     if st.button("🔄 Force Reload All Data", help="Completely reload all Excel data", type="secondary"):
         # Clear ALL session state data except authentication
@@ -256,12 +250,7 @@ if st.session_state.get("force_fresh_data", False):
     # Reset flag after use
     st.session_state.force_fresh_data = False
 
-# Show automatic fresh data loading indicator
-if st.session_state.get("auto_fresh_data", False):
-    current_time = time.time()
-    file_mtime = XLSX.stat().st_mtime if XLSX.exists() else 0
-    st.caption(f"🔄 Dynamic dropdowns active - Fresh data loaded at {time.strftime('%H:%M:%S', time.localtime(current_time))}")
-    st.caption(f"📁 Excel file last modified: {time.strftime('%H:%M:%S', time.localtime(file_mtime))}")
+# Status indicators removed - Google Sheets working properly
 
 # Add live data verification - now optional since issues are resolved
 with st.expander("🔍 Debug Information (Optional)", expanded=False):
@@ -523,14 +512,7 @@ else:
         else:
             cost_options = []
 
-        # Debug: Show fresh cost code data loading confirmation
-        if st.session_state.get("auto_fresh_data", False):
-            if active_c:
-                original_count = len(smart_read_data("Cost Codes", force_refresh=True))
-                active_count = len(_c)
-                st.caption(f"🔍 Cost Codes: {active_count} active / {original_count} total - Fresh data loaded")
-            else:
-                st.caption(f"🔍 Cost Codes: {len(_c)} total (no Active column) - Fresh data loaded")
+        # Debug removed - working properly
 
     except Exception:
         cost_options = []
@@ -562,11 +544,7 @@ try:
 
     _employee_options = sorted(_emp_df[EMP_NAME_COL].dropna().astype(str).unique().tolist())
 
-    # Debug: Show fresh data loading confirmation
-    if st.session_state.get("auto_fresh_data", False):
-        active_count = len(_emp_df[_emp_df["Active"] == True]) if "Active" in _emp_df.columns else len(_emp_df)
-        total_count = len(_emp_df)
-        st.caption(f"🔍 Employees: {active_count} active / {total_count} total - Fresh data loaded")
+    # Debug removed - working properly
 
 except Exception:
     _emp_df = pd.DataFrame()
