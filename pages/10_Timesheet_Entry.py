@@ -216,9 +216,30 @@ st.write("## 🔍 AUTOMATIC DEBUG INFORMATION")
 if True:
     st.write("## **DEBUGGING EMPLOYEE LIST**")
     try:
+        st.write("**Testing direct Excel read vs safe_read_excel:**")
+
+        # Try direct pandas read
+        try:
+            direct_read = pd.read_excel(XLSX, sheet_name="Employee List")
+            st.write(f"Direct pandas read: {len(direct_read)} rows")
+        except Exception as e:
+            st.write(f"Direct read failed: {e}")
+
+        # Try our safe read
         emp_debug = safe_read_excel(XLSX, "Employee List", force_refresh=True)
-        st.write(f"**RAW DATA LOADED - Total rows: {len(emp_debug)}**")
+        st.write(f"**safe_read_excel: {len(emp_debug)} rows**")
         st.write("**All columns:**", list(emp_debug.columns))
+
+        # Check if there are any NaN values in Employee Name that might cause issues
+        if "Employee Name" in emp_debug.columns:
+            nan_count = emp_debug["Employee Name"].isna().sum()
+            st.write(f"**NaN values in Employee Name column: {nan_count}**")
+
+            # Show any rows with NaN names
+            nan_rows = emp_debug[emp_debug["Employee Name"].isna()]
+            if not nan_rows.empty:
+                st.write("**Rows with NaN Employee Names:**")
+                st.dataframe(nan_rows)
 
         # Show all employee names
         name_col = None
@@ -229,9 +250,27 @@ if True:
 
         if name_col:
             st.write(f"**All employees in {name_col} column:**")
-            all_names = emp_debug[name_col].astype(str).tolist()
-            for i, name in enumerate(all_names, 1):
-                st.write(f"{i}. '{name}'")
+            st.write(f"**Expected: 11 employees, Actually loaded: {len(emp_debug)}**")
+
+            # Show all rows with their original Excel row numbers if possible
+            for idx, row in emp_debug.iterrows():
+                name = str(row[name_col])
+                person_num = row.get('Person Number', 'N/A')
+                active_val = row.get('Active', 'N/A')
+                st.write(f"Row {idx+2}: '{name}' (Person: {person_num}, Active: {active_val})")
+
+            # Check specifically for Graham with various spellings
+            graham_variations = ['GRAHAM', 'GRAEME', 'GRAHM', 'ST HILAIRE', 'HILAIRE']
+            for variation in graham_variations:
+                graham_check = emp_debug[emp_debug[name_col].astype(str).str.contains(variation, case=False, na=False)]
+                if not graham_check.empty:
+                    st.success(f"✅ Found '{variation}' in: {graham_check[name_col].iloc[0]}")
+                else:
+                    st.write(f"⚪ No match for '{variation}'")
+
+            # Show the full dataframe for inspection
+            st.write("**Full Employee DataFrame:**")
+            st.dataframe(emp_debug)
 
             # Check specifically for Graham
             graham_check = emp_debug[emp_debug[name_col].astype(str).str.contains("GRAHAM", case=False, na=False)]
