@@ -174,7 +174,7 @@ def save_to_session(new_rows):
         st.error(f"Error saving to session: {e}")
         return False
 
-col1, col2 = st.columns([2, 1])
+col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
     st.markdown("### Timesheet Entry")
 with col2:
@@ -196,6 +196,39 @@ with col2:
         st.success("🔄 All data cleared - Reloading...")
         st.rerun()
 
+with col3:
+    if st.button("📤 Sync Excel to Cloud", help="Push Excel changes to Streamlit Cloud", type="primary"):
+        try:
+            import subprocess
+            import os
+
+            # Check if there are changes to commit
+            result = subprocess.run(['git', 'status', '--porcelain'],
+                                  cwd=Path(__file__).parent.parent,
+                                  capture_output=True, text=True)
+
+            if 'TimeSheet Apps.xlsx' in result.stdout:
+                # Commit and push Excel file
+                subprocess.run(['git', 'add', 'TimeSheet Apps.xlsx'],
+                              cwd=Path(__file__).parent.parent, check=True)
+
+                commit_msg = f"Auto-sync Excel file changes - {time.strftime('%Y-%m-%d %H:%M:%S')}"
+                subprocess.run(['git', 'commit', '-m', commit_msg],
+                              cwd=Path(__file__).parent.parent, check=True)
+
+                subprocess.run(['git', 'push'],
+                              cwd=Path(__file__).parent.parent, check=True)
+
+                st.success("📤 Excel file synced to cloud! Changes will appear in ~1 minute.")
+
+            else:
+                st.info("📁 Excel file is already up to date.")
+
+        except subprocess.CalledProcessError as e:
+            st.error(f"Sync failed: {e}")
+        except Exception as e:
+            st.error(f"Error during sync: {e}")
+
 # Force fresh data reload if refresh was requested
 if st.session_state.get("force_fresh_data", False):
     st.info(f"🔄 Loading fresh data... (Timestamp: {st.session_state.get('data_refresh_timestamp', 'N/A')})")
@@ -209,11 +242,11 @@ if st.session_state.get("auto_fresh_data", False):
     st.caption(f"🔄 Dynamic dropdowns active - Fresh data loaded at {time.strftime('%H:%M:%S', time.localtime(current_time))}")
     st.caption(f"📁 Excel file last modified: {time.strftime('%H:%M:%S', time.localtime(file_mtime))}")
 
-# Add live data verification
-st.write("## 🔍 AUTOMATIC DEBUG INFORMATION")
+# Add live data verification - now optional since issues are resolved
+with st.expander("🔍 Debug Information (Optional)", expanded=False):
+    show_debug = st.checkbox("Show detailed debugging", value=False)
 
-# Always show debug info immediately
-if True:
+if show_debug:
     st.write("## **DEBUGGING EMPLOYEE LIST**")
     try:
         st.write("**Testing direct Excel read vs safe_read_excel:**")
