@@ -371,6 +371,18 @@ if show_debug:
             st.write(f"Items that should be filtered OUT (Active=False): {len(cost_debug) - combined_filter.sum()}")
             st.write(f"Items that should show in dropdown: {combined_filter.sum()}")
 
+            # Specific debug for the problematic cost code
+            st.write("**SPECIFIC DEBUG: 00002-170-53**")
+            specific_code = cost_debug[cost_debug['Cost Code'].astype(str).str.contains('00002-170-53', na=False)]
+            if not specific_code.empty:
+                row = specific_code.iloc[0]
+                st.write(f"Found: {row['Cost Code']} - {row['Description']}")
+                st.write(f"Active value: {row['Active']} (type: {type(row['Active']).__name__})")
+                st.write(f"Passes boolean filter: {row['Active'] == True}")
+                st.write(f"Passes string filter: {str(row['Active']).upper() in ['TRUE', 'YES', 'Y', '1']}")
+            else:
+                st.write("❌ 00002-170-53 NOT FOUND in cost codes data")
+
     except Exception as e:
         st.error(f"Cost codes debug error: {e}")
         import traceback
