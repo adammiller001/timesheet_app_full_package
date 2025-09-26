@@ -121,9 +121,9 @@ def _safe_read_excel_internal(file_path, sheet_name):
         return pd.DataFrame()
 
 @st.cache_data(show_spinner=False, ttl=60)
-def _cached_sheet_data(sheet_name: str, cache_token: int):
+def _cached_sheet_data(sheet_name: str, cache_token: int, force_refresh: bool):
     try:
-        df = read_timesheet_data(sheet_name)
+        df = read_timesheet_data(sheet_name, force_refresh=force_refresh)
         if isinstance(df, pd.DataFrame):
             return df
     except Exception as e:
@@ -139,7 +139,7 @@ def smart_read_data(sheet_name, force_refresh=False):
             cache_token += 1
             st.session_state["sheet_cache_token"] = cache_token
 
-        df = _cached_sheet_data(sheet_name, cache_token)
+        df = _cached_sheet_data(sheet_name, cache_token, force_refresh)
         if isinstance(df, pd.DataFrame) and not df.empty:
             return df.copy()
 

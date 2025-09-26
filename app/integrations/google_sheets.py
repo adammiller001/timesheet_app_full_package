@@ -32,6 +32,7 @@ class GoogleSheetsManager:
             'timestamp': 0,
             'worksheets': []
         }
+        self._data_cache = {}
 
     def connect(self) -> bool:
         """Connect to Google Sheets using service account credentials"""
@@ -58,6 +59,7 @@ class GoogleSheetsManager:
                 'timestamp': 0,
                 'worksheets': []
             }
+            self._data_cache = {}
             return True
 
         except Exception as e:
@@ -123,6 +125,7 @@ class GoogleSheetsManager:
                 'timestamp': time.time(),
                 'worksheets': []
             }
+            self._data_cache = {}
             return self.spreadsheet
 
         except Exception as e:
@@ -144,7 +147,7 @@ class GoogleSheetsManager:
         worksheet, _ = self.find_worksheet([worksheet_name], spreadsheet_id)
         return worksheet
 
-    def read_worksheet(self, worksheet_name: str, spreadsheet_id: Optional[str] = None) -> pd.DataFrame:
+    def read_worksheet(self, worksheet_name: str, spreadsheet_id: Optional[str] = None, force_refresh: bool = False) -> pd.DataFrame:
         """Read data from a worksheet and return as DataFrame"""
         try:
             if spreadsheet_id and not self.spreadsheet:
@@ -155,16 +158,27 @@ class GoogleSheetsManager:
                 st.error("No spreadsheet connected")
                 return pd.DataFrame()
 
-            worksheet, _ = self.find_worksheet([worksheet_name], spreadsheet_id)
+            worksheet, actual_name = self.find_worksheet([worksheet_name], spreadsheet_id)
             if not worksheet:
                 st.error(f"Worksheet '{worksheet_name}' not found")
                 return pd.DataFrame()
+
+            cache_key = actual_name or worksheet_name
+            cache_entry = self._data_cache.get(cache_key)
+            if cache_entry and not force_refresh:
+                cache_timestamp, cache_df = cache_entry
+                if time.time() - cache_timestamp < 60:
+                    return cache_df.copy()
 
             # Get all values
             try:
                 data = worksheet.get_all_records()
             except APIError as e:
                 if e.response.status_code == 429:
+                    cache_entry = self._data_cache.get(cache_key)
+                    if cache_entry:
+                        st.info("Using cached Google Sheets data while rate limit resets.")
+                        return cache_entry[1].copy()
                     st.warning("Google Sheets rate limit reached while reading data. Please wait a few seconds and try again.")
                     return pd.DataFrame()
                 raise
@@ -183,6 +197,7 @@ class GoogleSheetsManager:
                         'Y': True, 'N': False, '1': True, '0': False
                     }).fillna(df['Active'])
 
+            self._data_cache[cache_key] = (time.time(), df.copy())
             return df
 
         except Exception as e:
@@ -195,7 +210,7 @@ class GoogleSheetsManager:
             return True
 
         try:
-            worksheet, _ = self.find_worksheet([worksheet_name], spreadsheet_id)
+            worksheet, actual_name = self.find_worksheet([worksheet_name], spreadsheet_id)
             if not worksheet:
                 st.error(f"Worksheet '{worksheet_name}' not found when attempting to append rows")
                 return False
@@ -207,6 +222,7 @@ class GoogleSheetsManager:
                     st.warning("Google Sheets rate limit reached while writing data. Please wait a few seconds and try again.")
                     return False
                 raise
+            self._data_cache.pop(actual_name or worksheet_name, None)
             return True
 
         except APIError as e:
@@ -230,7 +246,7 @@ class GoogleSheetsManager:
                 st.error("No spreadsheet connected")
                 return False
 
-            worksheet, _ = self.find_worksheet([worksheet_name], spreadsheet_id)
+            worksheet, actual_name = self.find_worksheet([worksheet_name], spreadsheet_id)
             if not worksheet:
                 st.error(f"Worksheet '{worksheet_name}' not found")
                 return False
@@ -250,6 +266,11 @@ class GoogleSheetsManager:
                     return False
                 raise
 
+            cache_key = actual_name or worksheet_name
+            if isinstance(data, pd.DataFrame):
+                self._data_cache[cache_key] = (time.time(), data.copy())
+            else:
+                self._data_cache.pop(cache_key, None)
             return True
 
         except APIError as e:
@@ -269,7 +290,7 @@ def get_sheets_manager() -> GoogleSheetsManager:
     """Get the global sheets manager instance"""
     return sheets_manager
 
-def read_timesheet_data(worksheet_name: str) -> pd.DataFrame:
+def read_timesheet_data(worksheet_name: str, force_refresh: bool = False) -> pd.DataFrame:
     """
     Convenience function to read timesheet data from Google Sheets
     Falls back to Excel if Google Sheets is not configured
@@ -278,7 +299,7 @@ def read_timesheet_data(worksheet_name: str) -> pd.DataFrame:
         # Try Google Sheets first
         if "google_sheets_id" in st.secrets and st.secrets["google_sheets_id"]:
             manager = get_sheets_manager()
-            df = manager.read_worksheet(worksheet_name, st.secrets["google_sheets_id"])
+            df = manager.read_worksheet(worksheet_name, st.secrets["google_sheets_id"], force_refresh=force_refresh)
             if not df.empty:
                 return df
 
