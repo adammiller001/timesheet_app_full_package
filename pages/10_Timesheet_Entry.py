@@ -24,6 +24,13 @@ try:
 except Exception:
     HAVE_UTILS = False
 
+# Import Google Sheets integration
+try:
+    from app.integrations.google_sheets import read_timesheet_data, get_sheets_manager
+    HAVE_GOOGLE_SHEETS = True
+except Exception:
+    HAVE_GOOGLE_SHEETS = False
+
 # Gate: require login
 if not st.session_state.get("authenticated", False):
     st.warning("Please sign in on the Home page first.")
@@ -108,6 +115,25 @@ def _safe_read_excel_internal(file_path, sheet_name):
         st.error(f"Error reading Excel file: {e}")
         return pd.DataFrame()
 
+def smart_read_data(sheet_name, force_refresh=False):
+    """Smart data reader that uses Google Sheets when available, falls back to Excel"""
+    try:
+        # Try Google Sheets first if configured
+        if HAVE_GOOGLE_SHEETS and "google_sheets_id" in st.secrets:
+            try:
+                df = read_timesheet_data(sheet_name)
+                if not df.empty:
+                    st.caption(f"📊 Data loaded from Google Sheets (real-time)")
+                    return df
+            except Exception as e:
+                st.warning(f"Google Sheets unavailable, falling back to Excel: {e}")
+
+        # Fallback to Excel file
+        return safe_read_excel(XLSX, sheet_name, force_refresh)
+    except Exception as e:
+        st.error(f"Failed to load {sheet_name}: {e}")
+        return pd.DataFrame()
+
 def get_available_worksheets(file_path):
     """Get list of available worksheets in Excel file"""
     try:
@@ -177,6 +203,11 @@ def save_to_session(new_rows):
 col1, col2, col3 = st.columns([2, 1, 1])
 with col1:
     st.markdown("### Timesheet Entry")
+    # Show data source status
+    if HAVE_GOOGLE_SHEETS and "google_sheets_id" in st.secrets:
+        st.success("🔗 Connected to Google Sheets - Real-time sync enabled")
+    else:
+        st.info("📁 Using Excel files - Manual sync required")
 with col2:
     if st.button("🔄 Force Reload All Data", help="Completely reload all Excel data", type="secondary"):
         # Clear ALL session state data except authentication
@@ -249,7 +280,7 @@ if show_debug:
             st.write(f"Direct read failed: {e}")
 
         # Try our safe read
-        emp_debug = safe_read_excel(XLSX, "Employee List", force_refresh=True)
+        emp_debug = smart_read_data("Employee List", force_refresh=True)
         st.write(f"**safe_read_excel: {len(emp_debug)} rows**")
         st.write("**All columns:**", list(emp_debug.columns))
 
@@ -334,7 +365,7 @@ if show_debug:
 
     st.write("## **DEBUGGING COST CODES**")
     try:
-        cost_debug = safe_read_excel(XLSX, "Cost Codes", force_refresh=True)
+        cost_debug = smart_read_data("Cost Codes", force_refresh=True)
         st.write(f"**RAW DATA LOADED - Total rows: {len(cost_debug)}**")
         st.write("**All columns:**", list(cost_debug.columns))
 
@@ -446,7 +477,7 @@ if HAVE_UTILS:
         job_options = _build_job_options_local(jobs_df)
 else:
     try:
-        _df = safe_read_excel(XLSX, "Job Numbers", force_refresh=True)
+        _df = smart_read_data("Job Numbers", force_refresh=True)
         _df.columns = [str(c).strip() for c in _df.columns]
         _actcol = _find_col(_df, ["Active", "ACTIVE"])
         if _actcol:
@@ -472,7 +503,7 @@ if HAVE_UTILS:
         cost_options = []
 else:
     try:
-        _c = safe_read_excel(XLSX, "Cost Codes", force_refresh=True)
+        _c = smart_read_data("Cost Codes", force_refresh=True)
         _c.columns = [str(c).strip() for c in _c.columns]
         code_c = _find_col(_c, ["Cost Code", "Code"])
         desc_c = _find_col(_c, ["Description", "DESC", "Name"])
@@ -495,7 +526,7 @@ else:
         # Debug: Show fresh cost code data loading confirmation
         if st.session_state.get("auto_fresh_data", False):
             if active_c:
-                original_count = len(safe_read_excel(XLSX, "Cost Codes", force_refresh=True))
+                original_count = len(smart_read_data("Cost Codes", force_refresh=True))
                 active_count = len(_c)
                 st.caption(f"🔍 Cost Codes: {active_count} active / {original_count} total - Fresh data loaded")
             else:
@@ -516,7 +547,7 @@ st.divider()
 
 # --- Employees (simple multiselect dropdown only) ---
 try:
-    _emp_df = safe_read_excel(XLSX, "Employee List", force_refresh=True)
+    _emp_df = smart_read_data("Employee List", force_refresh=True)
     _emp_df.columns = [str(c).strip() for c in _emp_df.columns]
 
     if "Active" in _emp_df.columns:
