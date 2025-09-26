@@ -177,6 +177,7 @@ if "user_email" not in st.session_state:
 
 # Show login form if not authenticated
 if not st.session_state.get("authenticated", False):
+    st.markdown("""<style>.block-container {padding-top: 9rem !important;}@media (max-width: 768px){.block-container {padding-top: 6rem !important;}}</style>""", unsafe_allow_html=True)
     st.title("🔐 PTW - Daily Timesheet Suite")
     st.markdown("### Please sign in with your work email")
 
@@ -207,6 +208,7 @@ if not st.session_state.get("authenticated", False):
                     st.info("Please contact your administrator if you believe this is an error")
 
 else:
+    st.markdown("""<style>.block-container {padding-top: 2rem !important;}</style>""", unsafe_allow_html=True)
     # User is authenticated - show main app
     st.title("📊 PTW - Daily Timesheet Suite")
 

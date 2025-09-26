@@ -387,11 +387,11 @@ def save_to_session(new_rows):
         st.error(f"Error saving to session: {e}")
         return False
 
-col1, col2, col3 = st.columns([2, 1, 1])
+col1, col2 = st.columns([3, 1])
 with col1:
     st.markdown("### Timesheet Entry")
 with col2:
-    if st.button("🔄 Force Reload All Data", help="Completely reload all Excel data", type="secondary"):
+    if st.button("?? Force Reload All Data", help="Completely reload all data", type="secondary"):
         # Clear ALL session state data except authentication
         keys_to_keep = ["user_email", "user_type", "authenticated"]
         for key in list(st.session_state.keys()):
@@ -406,31 +406,9 @@ with col2:
 
         # Clear all caches
         st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
-        st.success("🔄 All data cleared - Reloading...")
+        st.success("?? All data cleared - Reloading...")
         st.rerun()
 
-with col3:
-    if st.button("🔄 Check File Status", help="Check if Excel file needs syncing", type="primary"):
-        try:
-            file_mtime = XLSX.stat().st_mtime if XLSX.exists() else 0
-            formatted_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(file_mtime))
-
-            st.info(f"📁 Excel file last modified: {formatted_time}")
-            st.warning("⚠️ Auto-sync from Streamlit Cloud is not possible. To sync Excel changes:")
-            st.markdown("""
-            **Manual Sync Steps:**
-            1. Save changes to TimeSheet Apps.xlsx locally
-            2. Run these commands in your terminal:
-               ```bash
-               git add "TimeSheet Apps.xlsx"
-               git commit -m "Update Excel file"
-               git push
-               ```
-            3. Wait 1-2 minutes for Streamlit Cloud to redeploy
-            """)
-
-        except Exception as e:
-            st.error(f"Error checking file status: {e}")
 
 # Force fresh data reload if refresh was requested
 if st.session_state.get("force_fresh_data", False):
