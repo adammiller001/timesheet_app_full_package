@@ -440,13 +440,6 @@ def _replace_time_data_in_google(updated_df: pd.DataFrame) -> bool:
 def save_to_session(new_rows):
     """Save new rows to session, then persist entire dataset to Excel/Google when configured"""
     try:
-        log_path = Path('app/save_log.txt')
-        try:
-            with log_path.open('a', encoding='utf-8') as log:
-                log.write(f"SAVE {datetime.now():%Y-%m-%d %H:%M:%S} new_rows={len(new_rows)}\n")
-        except Exception:
-            pass
-
         if not new_rows:
             return False
 
@@ -691,6 +684,26 @@ def _build_job_options_local(df: pd.DataFrame):
             out.append(f"{j} - {a} - {d}")
     return sorted(pd.Series(out).dropna().astype(str).unique().tolist())
 
+
+def _is_quarter_hour(value: float) -> bool:
+    return abs((value * 4) - round(value * 4)) < 1e-6
+
+
+def _parse_hours_input(raw_value: str) -> Optional[float]:
+    if raw_value is None:
+        return 0.0
+    raw_value = str(raw_value).strip()
+    if raw_value == "":
+        return 0.0
+    try:
+        value = float(raw_value)
+    except ValueError:
+        return None
+    if value < 0:
+        return None
+    return round(value, 2)
+
+
 # --- Jobs (Active) ---
 if HAVE_UTILS:
     try:
@@ -811,9 +824,35 @@ def night_flag_for(_name: str) -> str:
 # --- Hours Input ---
 cols = st.columns(3)
 with cols[0]:
-    rt_hours = st.number_input("RT Hours", min_value=0.00, step=0.25, format="%.2f", value=0.00, key=f"rt_hours_{st.session_state.form_counter}")
+    rt_hours_raw = st.text_input("RT Hours", placeholder="Enter RT hours", key=f"rt_hours_{st.session_state.form_counter}")
+    rt_hours = _parse_hours_input(rt_hours_raw)
+    rt_hours_valid = True
+    if rt_hours is None:
+        rt_hours_valid = False
+        if str(rt_hours_raw).strip():
+            st.error("Enter a non-negative number (increments of 0.25).")
+        rt_hours_value = 0.0
+    else:
+        if not _is_quarter_hour(rt_hours):
+            st.error("Hours must be entered in 0.25 increments.")
+            rt_hours_valid = False
+        rt_hours_value = rt_hours if rt_hours_valid else 0.0
+
 with cols[1]:
-    ot_hours = st.number_input("OT Hours", min_value=0.00, step=0.25, format="%.2f", value=0.00, key=f"ot_hours_{st.session_state.form_counter}")
+    ot_hours_raw = st.text_input("OT Hours", placeholder="Enter OT hours", key=f"ot_hours_{st.session_state.form_counter}")
+    ot_hours = _parse_hours_input(ot_hours_raw)
+    ot_hours_valid = True
+    if ot_hours is None:
+        ot_hours_valid = False
+        if str(ot_hours_raw).strip():
+            st.error("Enter a non-negative number (increments of 0.25).")
+        ot_hours_value = 0.0
+    else:
+        if not _is_quarter_hour(ot_hours):
+            st.error("Hours must be entered in 0.25 increments.")
+            ot_hours_valid = False
+        ot_hours_value = ot_hours if ot_hours_valid else 0.0
+
 with cols[2]:
     st.write("")
 
@@ -828,7 +867,9 @@ def _parse_job(choice: str):
     return parts[0], parts[1], parts[2]
 
 # --- Add line ---
-add_disabled = not (job_choice and cost_choice and selected_employees and (rt_hours > 0 or ot_hours > 0))
+hours_valid = rt_hours_valid and ot_hours_valid
+positive_hours = (rt_hours_value > 0) or (ot_hours_value > 0)
+add_disabled = not (job_choice and cost_choice and selected_employees and hours_valid and positive_hours)
 
 if st.button("Add line", type="primary", disabled=add_disabled):
     with st.spinner("Adding entries..."):
@@ -865,8 +906,8 @@ if st.button("Add line", type="primary", disabled=add_disabled):
                     "Name": emp_name,
                     "Trade Class": emp_data['trade'],
                     "Employee Number": emp_data['emp_num'],
-                    "RT Hours": rt_hours,
-                    "OT Hours": ot_hours,
+                    "RT Hours": rt_hours_value,
+                    "OT Hours": ot_hours_value,
                     "Description of work": job_desc,
                     "Comments": comments,
                     "Night Shift": emp_data['night'],
@@ -881,9 +922,15 @@ if st.button("Add line", type="primary", disabled=add_disabled):
             success = save_to_session(new_rows)
 
             if success:
+                current_counter = st.session_state.form_counter
+                for suffix in ("job_choice", "cost_choice", "selected_employees", "rt_hours", "ot_hours", "comments"):
+                    key = f"{suffix}_{current_counter}"
+                    if key in st.session_state:
+                        del st.session_state[key]
+
                 st.success(f"Added {len(new_rows)} line(s) to Time Data.")
                 # Clear form by incrementing counter (changes all widget keys)
-                st.session_state.form_counter += 1
+                st.session_state.form_counter = current_counter + 1
                 st.rerun()
             else:
                 st.error("Failed to save data. Please try again.")
