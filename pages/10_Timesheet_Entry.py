@@ -1006,33 +1006,34 @@ try:
             delete_tabs = st.tabs(["Delete Multiple", "Delete All"])
 
             with delete_tabs[0]:
-                individual_delete_options = [
-                    f"Row {idx+1}: {row['Name']} - {row['Date']} - {row.get('Job Number', '')} ({row.get('RT Hours', 0)}RT/{row.get('OT Hours', 0)}OT)"
-                    for idx, row in filtered_data.iterrows()
-                ]
+                option_labels = {}
+                option_keys = []
+                for display_idx, (actual_index, row) in enumerate(filtered_data.iterrows(), start=1):
+                    label = (
+                        f"Row {display_idx}: {row['Name']} - {row['Date']} - "
+                        f"{row.get('Job Number', '')} ({row.get('RT Hours', 0)}RT/{row.get('OT Hours', 0)}OT)"
+                    )
+                    key = str(actual_index)
+                    option_labels[key] = label
+                    option_keys.append(key)
 
                 selected_multiple_delete = st.multiselect(
                     f"Select multiple entries to delete (for {date_val}):",
-                    individual_delete_options,
+                    option_keys,
                     default=[],
-                    placeholder="Choose multiple entries to delete..."
+                    placeholder="Choose multiple entries to delete...",
+                    format_func=lambda opt: option_labels.get(opt, opt),
+                    key=f"delete_multi_options_{selected_date_str}"
                 )
 
                 col1, col2 = st.columns([2, 1])
                 with col2:
-                    delete_multiple_button = st.button("Delete Selected Entries", type="secondary", key="delete_multiple")
+                    delete_multiple_button = st.button("Delete Selected Entries", type="secondary", key=f"delete_multiple_{selected_date_str}")
 
                 if delete_multiple_button and selected_multiple_delete:
                     with st.spinner("Deleting selected entries..."):
                         try:
-                            indices_to_delete = []
-                            for selected_item in selected_multiple_delete:
-                                row_text = selected_item.split(":")[0]
-                                display_row_number = int(row_text.split(" ")[1]) - 1
-
-                                if 0 <= display_row_number < len(filtered_data):
-                                    actual_index = filtered_data.iloc[display_row_number].name
-                                    indices_to_delete.append(actual_index)
+                            indices_to_delete = [int(opt) for opt in selected_multiple_delete]
 
                             if indices_to_delete:
                                 updated_data = total_data.drop(index=indices_to_delete).reset_index(drop=True)
@@ -1049,7 +1050,7 @@ try:
                             else:
                                 st.error("No valid entries selected for deletion.")
 
-                        except (IndexError, ValueError) as e:
+                        except ValueError as e:
                             st.error(f"Could not parse row selections: {e}")
                         except Exception as e:
                             st.error(f"Could not delete entries: {e}")
