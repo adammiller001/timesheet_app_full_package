@@ -14,6 +14,7 @@ from time import sleep
 import time
 from app.style_utils import apply_watermark
 from datetime import datetime, date
+from typing import Optional
 
 apply_watermark()
 
@@ -42,6 +43,16 @@ if not st.session_state.get("authenticated", False):
 
 user = st.session_state.get("user_email")
 user_type = st.session_state.get("user_type", "User")
+GOOGLE_CONFIGURED = (
+    "google_sheets_id" in st.secrets
+    and str(st.secrets["google_sheets_id"]).strip()
+)
+
+if GOOGLE_CONFIGURED and not HAVE_GOOGLE_SHEETS:
+    if not st.session_state.get("_google_dependency_warning_shown", False):
+        st.warning("Google Sheets integration is configured, but required packages are missing. Install gspread and google-auth (e.g. run pip install -r requirements.txt) before exporting.")
+        st.session_state["_google_dependency_warning_shown"] = True
+
 st.sidebar.info(f"Signed in as: {user} ({user_type})")
 
 # Initialize automatic data refresh trigger for truly dynamic dropdowns
@@ -49,6 +60,13 @@ if "auto_fresh_data" not in st.session_state:
     st.session_state.auto_fresh_data = True
 
 XLSX = Path(__file__).resolve().parent.parent / "TimeSheet Apps.xlsx"
+
+TIME_DATA_COLUMNS = [
+    "Job Number", "Job Area", "Date", "Name", "Trade Class",
+    "Employee Number", "RT Hours", "OT Hours", "Description of work",
+    "Comments", "Night Shift", "Premium Rate", "Subsistence Rate",
+    "Travel Rate", "Indirect", "Cost Code"
+]
 
 # File modification time monitoring for automatic reloads
 def check_file_modified():
@@ -184,6 +202,68 @@ def safe_read_excel(file_path, sheet_name, force_refresh=False):
         else:
             st.error(f"Error accessing Excel file: {e}")
         return pd.DataFrame()
+
+
+def _prepare_time_data_dataframe(df: Optional[pd.DataFrame]) -> pd.DataFrame:
+    if df is None or df.empty:
+        df = pd.DataFrame(columns=TIME_DATA_COLUMNS)
+    else:
+        df = df.copy()
+    for col in TIME_DATA_COLUMNS:
+        if col not in df.columns:
+            df[col] = ''
+    ordered_cols = TIME_DATA_COLUMNS + [col for col in df.columns if col not in TIME_DATA_COLUMNS]
+    df = df[ordered_cols]
+    if 'Date' in df.columns and not df.empty:
+        try:
+            df['Date'] = pd.to_datetime(df['Date']).dt.strftime('%Y-%m-%d')
+        except Exception:
+            df['Date'] = df['Date'].astype(str)
+    df = df.applymap(_normalize_sheet_value)
+    return df
+
+def _load_time_data_from_excel() -> pd.DataFrame:
+    try:
+        if not XLSX.exists():
+            return pd.DataFrame(columns=TIME_DATA_COLUMNS)
+        df = safe_read_excel_force_fresh(str(XLSX), 'Time Data')
+        if isinstance(df, pd.DataFrame):
+            df.columns = [str(col).strip() for col in df.columns]
+        return _prepare_time_data_dataframe(df)
+    except Exception:
+        return pd.DataFrame(columns=TIME_DATA_COLUMNS)
+
+def _write_time_data_to_excel(df: pd.DataFrame) -> bool:
+    try:
+        df_to_write = _prepare_time_data_dataframe(df)
+        if XLSX.exists():
+            with pd.ExcelWriter(str(XLSX), engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+                df_to_write.to_excel(writer, sheet_name='Time Data', index=False)
+        else:
+            with pd.ExcelWriter(str(XLSX), engine='openpyxl') as writer:
+                df_to_write.to_excel(writer, sheet_name='Time Data', index=False)
+        return True
+    except PermissionError:
+        st.warning('Could not update local Time Data worksheet. Please close the Excel file and try again.')
+        return False
+    except Exception as e:
+        st.warning(f'Could not update local Time Data worksheet: {e}')
+        return False
+
+def _append_time_data_to_excel(new_data_df: pd.DataFrame) -> bool:
+    if new_data_df is None or new_data_df.empty:
+        return True
+    try:
+        prepared_new = _prepare_time_data_dataframe(new_data_df)
+        existing = _load_time_data_from_excel()
+        if existing.empty:
+            combined = prepared_new
+        else:
+            combined = pd.concat([existing, prepared_new], ignore_index=True)
+        return _write_time_data_to_excel(combined)
+    except Exception as e:
+        st.warning(f'Could not update local Time Data worksheet: {e}')
+        return False
 
 def get_time_data_from_session(_date_filter=None):
     """Get time data from session state with optional date filtering"""
@@ -332,8 +412,7 @@ def _replace_time_data_in_google(updated_df: pd.DataFrame) -> bool:
         header_values = worksheet.row_values(1)
         headers = [str(cell).strip() for cell in header_values if str(cell).strip()]
 
-        df_to_write = updated_df.copy()
-        df_to_write.columns = [str(col).strip() for col in df_to_write.columns]
+        df_to_write = _prepare_time_data_dataframe(updated_df)
 
         if headers:
             for header in headers:
@@ -343,49 +422,63 @@ def _replace_time_data_in_google(updated_df: pd.DataFrame) -> bool:
         elif not df_to_write.empty:
             headers = list(df_to_write.columns)
         else:
-            headers = [
-                "Job Number", "Job Area", "Date", "Name", "Trade Class",
-                "Employee Number", "RT Hours", "OT Hours", "Description of work",
-                "Comments", "Night Shift", "Premium Rate", "Subsistence Rate",
-                "Travel Rate", "Indirect", "Cost Code"
-            ]
+            headers = TIME_DATA_COLUMNS.copy()
             for header in headers:
                 if header not in df_to_write.columns:
                     df_to_write[header] = ''
             df_to_write = df_to_write[headers]
 
-        if not df_to_write.empty:
-            df_to_write = df_to_write.applymap(_normalize_sheet_value)
-        else:
-            df_to_write = df_to_write.astype(str)
-
         success = manager.write_worksheet(actual_title, df_to_write, sheet_id)
-        return success
-
+        return bool(success)
     except Exception as e:
         st.error(f"Failed to update Time Data in Google Sheets: {e}")
         return False
 
 
+
+
 def save_to_session(new_rows):
-    """Save new rows to session state and sync to Google Sheets when configured"""
+    """Save new rows to session, then persist entire dataset to Excel/Google when configured"""
     try:
+        log_path = Path('app/save_log.txt')
+        try:
+            with log_path.open('a', encoding='utf-8') as log:
+                log.write(f"SAVE {datetime.now():%Y-%m-%d %H:%M:%S} new_rows={len(new_rows)}\n")
+        except Exception:
+            pass
+
+        if not new_rows:
+            return False
+
         new_data_df = pd.DataFrame(new_rows)
+        if new_data_df.empty:
+            return False
 
-        # Add to session state Time Data
-        if not st.session_state.session_time_data.empty:
-            st.session_state.session_time_data = pd.concat([st.session_state.session_time_data, new_data_df], ignore_index=True)
+        existing_df = st.session_state.get("session_time_data")
+        if isinstance(existing_df, pd.DataFrame) and not existing_df.empty:
+            updated_df = pd.concat([existing_df, new_data_df], ignore_index=True)
         else:
-            st.session_state.session_time_data = new_data_df
+            updated_df = new_data_df.copy()
 
-        synced = _sync_time_data_to_google(new_data_df)
-        if not synced:
-            st.warning("Added lines locally, but could not update Google Sheets Time Data.")
+        updated_df = _prepare_time_data_dataframe(updated_df)
+        st.session_state.session_time_data = updated_df
 
-        return True
+        excel_synced = _write_time_data_to_excel(updated_df)
+        if not excel_synced:
+            st.warning("Added lines locally, but could not update local Time Data worksheet.")
+
+        google_synced = True
+        if GOOGLE_CONFIGURED and HAVE_GOOGLE_SHEETS:
+            google_synced = _replace_time_data_in_google(updated_df)
+            if not google_synced:
+                st.warning("Added lines locally, but could not update Google Sheets Time Data.")
+
+        st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
+        return excel_synced or google_synced
     except Exception as e:
-        st.error(f"Error saving to session: {e}")
+        st.error(f"Error saving to Time Data: {e}")
         return False
+
 
 st.markdown("### Timesheet Entry")
 
@@ -560,12 +653,7 @@ if "session_time_data" not in st.session_state:
     if isinstance(initial_data, pd.DataFrame) and (not initial_data.empty or len(initial_data.columns) > 0):
         st.session_state.session_time_data = initial_data
     else:
-        st.session_state.session_time_data = pd.DataFrame(columns=[
-            "Job Number", "Job Area", "Date", "Name", "Trade Class",
-            "Employee Number", "RT Hours", "OT Hours", "Description of work",
-            "Comments", "Night Shift", "Premium Rate", "Subsistence Rate",
-            "Travel Rate", "Indirect", "Cost Code"
-        ])
+        st.session_state.session_time_data = pd.DataFrame(columns=TIME_DATA_COLUMNS.copy())
 
 # --- Helper functions ---
 def _find_col(df: pd.DataFrame, candidates):
@@ -876,9 +964,12 @@ try:
 
                             if indices_to_delete:
                                 updated_data = total_data.drop(index=indices_to_delete).reset_index(drop=True)
+                                excel_synced = _write_time_data_to_excel(updated_data)
                                 synced = _replace_time_data_in_google(updated_data)
+                                if not excel_synced:
+                                    st.warning("Deleted entries locally, but could not update local Time Data worksheet.")
                                 if not synced:
-                                    st.warning("Deleted entries locally, but could not update Google Sheets.")
+                                    st.warning("Deleted entries locally, but external Time Data storage could not be updated.")
 
                                 st.session_state.session_time_data = updated_data
                                 st.success(f"Deleted {len(indices_to_delete)} selected entries from {date_val}.")
@@ -904,9 +995,12 @@ try:
                                 pd.to_datetime(total_data["Date"]).dt.strftime("%Y-%m-%d") != selected_date_str
                             ].reset_index(drop=True) if not total_data.empty else pd.DataFrame()
 
+                            excel_synced = _write_time_data_to_excel(remaining_data)
                             synced = _replace_time_data_in_google(remaining_data)
+                            if not excel_synced:
+                                st.warning("Deleted entries locally, but could not update local Time Data worksheet.")
                             if not synced:
-                                st.warning("Deleted entries locally, but could not update Google Sheets.")
+                                st.warning("Deleted entries locally, but external Time Data storage could not be updated.")
 
                             st.session_state.session_time_data = remaining_data
                             st.success(f"Deleted {filtered_entries} entries from {date_val}.")
@@ -928,9 +1022,13 @@ if user_type.upper() == "ADMIN":
     st.subheader("Export to Templates")
 
     try:
-        time_data_for_export = smart_read_data("Time Data", force_refresh=True)
-        if time_data_for_export.empty:
-            time_data_for_export = safe_read_excel(XLSX, "Time Data")
+        time_data_for_export = get_time_data_from_session(None)
+        if not time_data_for_export.empty:
+            time_data_for_export = time_data_for_export.copy()
+        else:
+            time_data_for_export = smart_read_data("Time Data", force_refresh=True)
+            if time_data_for_export.empty:
+                time_data_for_export = safe_read_excel(XLSX, "Time Data")
         if not time_data_for_export.empty:
 
             def _prepare_employee_entries(entries):
