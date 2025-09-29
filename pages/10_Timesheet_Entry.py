@@ -265,6 +265,22 @@ def _append_time_data_to_excel(new_data_df: pd.DataFrame) -> bool:
         st.warning(f'Could not update local Time Data worksheet: {e}')
         return False
 
+def _load_latest_time_data_for_sync() -> tuple[pd.DataFrame, str]:
+    try:
+        if GOOGLE_CONFIGURED and HAVE_GOOGLE_SHEETS:
+            st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
+            latest = smart_read_data("Time Data", force_refresh=True)
+            if isinstance(latest, pd.DataFrame):
+                prepared = _prepare_time_data_dataframe(latest)
+                if not prepared.empty or len(prepared.columns) > 0:
+                    return prepared, "google"
+                return prepared, "google"
+    except Exception:
+        pass
+
+    fallback = _load_time_data_from_excel()
+    return _prepare_time_data_dataframe(fallback), "excel"
+
 def get_time_data_from_session(_date_filter=None):
     """Get time data from session state with optional date filtering"""
     try:
@@ -447,12 +463,21 @@ def save_to_session(new_rows):
         if new_data_df.empty:
             return False
 
+        refreshed_df, source = _load_latest_time_data_for_sync()
         existing_df = st.session_state.get("session_time_data")
-        if isinstance(existing_df, pd.DataFrame) and not existing_df.empty:
-            updated_df = pd.concat([existing_df, new_data_df], ignore_index=True)
-        else:
-            updated_df = new_data_df.copy()
 
+        if source == "google":
+            combined_source = refreshed_df
+        else:
+            if isinstance(existing_df, pd.DataFrame) and not existing_df.empty:
+                combined_source = existing_df
+            else:
+                combined_source = refreshed_df
+
+        if combined_source is None or combined_source.empty:
+            combined_source = pd.DataFrame(columns=TIME_DATA_COLUMNS.copy())
+
+        updated_df = pd.concat([combined_source, new_data_df], ignore_index=True)
         updated_df = _prepare_time_data_dataframe(updated_df)
         st.session_state.session_time_data = updated_df
 
