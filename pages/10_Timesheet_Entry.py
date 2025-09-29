@@ -1255,7 +1255,8 @@ if user_type.upper() == "ADMIN":
                                             'override_trade_class': str(emp_row.get("Override Trade Class", "") or ""),
                                             'premium_rate': str(emp_row.get("Premium Rate", "") or ""),
                                             'subsistence_rate': str(emp_row.get("Subsistence Rate", "") or ""),
-                                            'travel_rate': str(emp_row.get("Travel Rate", "") or "")
+                                            'travel_rate': str(emp_row.get("Travel Rate", "") or ""),
+                                            'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip()
                                         }
 
                                 # Load cost codes for descriptions
@@ -1431,9 +1432,11 @@ if user_type.upper() == "ADMIN":
                                         travel_rate = clean_value(row.get('Travel Rate', ''))
                                         night_shift = clean_value(row.get('Night Shift', ''))
 
+                                        time_record_type = clean_value(emp_info.get('time_record_type', ''))
+
                                         base_data = [
                                             export_date.strftime('%Y-%m-%d'),  # A - Date
-                                            '',                                 # B - Empty
+                                            time_record_type,                  # B - Time Record Type
                                             clean_value(row.get('Employee Number', '')),  # C - Employee Number
                                             clean_value(row.get('Name', '')),             # D - Name
                                             clean_value(row.get('Trade Class', '')),      # E - Trade Class
