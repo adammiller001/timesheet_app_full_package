@@ -981,6 +981,10 @@ try:
     total_entries = len(total_data) if not total_data.empty else 0
     filtered_entries = len(filtered_data) if not filtered_data.empty else 0
 
+    if user_type.upper() != "ADMIN":
+        st.info("Current Time Data is available to administrators only.")
+        st.stop()
+
     # Show helpful message when no data exists
     if total_entries == 0:
         available_sheets = get_available_worksheets(XLSX)
