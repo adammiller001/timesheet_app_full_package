@@ -558,7 +558,7 @@ if st.session_state.get("force_fresh_data", False):
 # Status indicators removed - Google Sheets working properly
 
 # Add live data verification - now optional since issues are resolved
-    st.write("## **DEBUGGING EMPLOYEE LIST**")
+    if False:
     try:
         st.write("**Testing direct Excel read vs safe_read_excel:**")
 
