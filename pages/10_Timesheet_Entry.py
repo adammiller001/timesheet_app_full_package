@@ -189,6 +189,13 @@ user_type = _resolve_user_type(user, user_type)
 st.session_state["user_type"] = user_type
 st.sidebar.info(f"Signed in as: {user} ({user_type})")
 
+if st.sidebar.button("Refresh All Dropdowns", use_container_width=True):
+    st.session_state['force_fresh_data'] = True
+    st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
+    st.session_state['data_refresh_timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    st.rerun()
+
+
 def smart_read_data(sheet_name, force_refresh=False):
     """Smart data reader that minimizes Google Sheets requests and falls back gracefully"""
     try:
