@@ -731,6 +731,19 @@ def _pad_area(val: object) -> str:
         return d.zfill(3)
     return s
 
+def _is_truthy(value) -> bool:
+    """Return True if the value represents an affirmative flag."""
+    str_val = str(value).strip().upper()
+    if isinstance(value, bool):
+        return value
+    if str_val in {"TRUE", "YES", "Y", "1", "ON"}:
+        return True
+    try:
+        return float(str_val) == 1.0
+    except Exception:
+        return False
+
+
 def _build_job_options_local(df: pd.DataFrame):
     """Build job options with proper 3-digit area padding"""
     if df is None or df.empty:
@@ -769,34 +782,45 @@ def _parse_hours_input(raw_value: str) -> Optional[float]:
     return round(value, 2)
 
 
-# --- Jobs (Active) ---
-if HAVE_UTILS:
+def _load_active_job_options() -> list[str]:
+    """Load active job options from Google Sheets (fallback to Excel/utilities)."""
+    candidate_frames = []
     try:
-        jobs_df = load_jobs_active(XLSX)
-        job_options = _build_job_options_local(jobs_df)
-    except Exception as e:
-        st.warning(f"Could not load jobs from utils: {e}")
-        jobs_df = safe_read_excel(XLSX, "Job Numbers")
-        job_options = _build_job_options_local(jobs_df)
-else:
-    try:
-        _df = smart_read_data("Job Numbers")
-        _df.columns = [str(c).strip() for c in _df.columns]
-        _actcol = _find_col(_df, ["Active", "ACTIVE"])
-        if _actcol:
-            _df = _df[_df[_actcol].astype(str).str.upper().isin(["TRUE", "YES", "Y", "1"])]
-        job_options = _build_job_options_local(_df)
+        df = smart_read_data("Job Numbers", force_refresh=True)
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            candidate_frames.append(df)
     except Exception:
-        job_options = []
+        pass
+    if not candidate_frames:
+        try:
+            df = safe_read_excel(XLSX, "Job Numbers")
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                candidate_frames.append(df)
+        except Exception:
+            pass
+    if not candidate_frames and HAVE_UTILS:
+        try:
+            df = load_jobs_active(XLSX)
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                candidate_frames.append(df)
+        except Exception:
+            pass
+    if candidate_frames:
+        jobs_df = candidate_frames[0].copy()
+        jobs_df.columns = [str(c).strip() for c in jobs_df.columns]
+        active_col = _find_col(jobs_df, ["Active", "Is Active", "Enabled", "Include"])
+        if active_col is None and len(jobs_df.columns) >= 7:
+            active_col = jobs_df.columns[6]
+        if active_col:
+            mask = jobs_df[active_col].apply(_is_truthy)
+            jobs_df = jobs_df[mask]
+        return _build_job_options_local(jobs_df)
+    return []
 
-job_choice = st.selectbox(
-    "Job Number - Area Number - Description",
-    job_options,
-    index=None,
-    placeholder="Select a job...",
-    key=f"job_choice_{st.session_state.form_counter}"
-)
-
+# --- Jobs (Active) ---
+job_options = _load_active_job_options()
+if not job_options:
+    st.warning("No active jobs found. Check the Job Numbers sheet and ensure new rows are marked active (column G).")
 # --- Cost Codes ---
 if HAVE_UTILS:
     try:
