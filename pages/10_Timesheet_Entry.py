@@ -821,50 +821,63 @@ def _load_active_job_options() -> list[str]:
 job_options = _load_active_job_options()
 if not job_options:
     st.warning("No active jobs found. Check the Job Numbers sheet and ensure new rows are marked active (column G).")
-# --- Cost Codes ---
-if HAVE_UTILS:
+def _load_active_cost_codes() -> list[str]:
+    """Return active cost code options from Google Sheets, fallback to Excel/utilities."""
+    candidate_frames = []
     try:
-        cost_options = load_cost_options(XLSX)
-    except Exception as e:
-        st.warning(f"Could not load cost codes from utils: {e}")
-        cost_options = []
-else:
-    try:
-        _c = smart_read_data("Cost Codes")
-        _c.columns = [str(c).strip() for c in _c.columns]
-        code_c = _find_col(_c, ["Cost Code", "Code"])
-        desc_c = _find_col(_c, ["Description", "DESC", "Name"])
-        active_c = _find_col(_c, ["Active", "ACTIVE"])
-
-        if active_c:
-            # Handle both boolean and string values for Active
-            _c = _c[(_c[active_c] == True) | (_c[active_c].astype(str).str.upper().isin(["TRUE", "YES", "Y", "1"]))]
-        
-        if code_c:
-            if desc_c:
-                cost_options = sorted([f"{str(r[code_c]).strip()} - {str(r[desc_c]).strip()}" 
-                                     for _, r in _c.iterrows() if str(r[code_c]).strip()])
-            else:
-                cost_options = sorted([str(r[code_c]).strip() 
-                                     for _, r in _c.iterrows() if str(r[code_c]).strip()])
-        else:
-            cost_options = []
-
-        # Debug removed - working properly
-
+        df = smart_read_data("Cost Codes", force_refresh=True)
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            candidate_frames.append(df)
     except Exception:
-        cost_options = []
+        pass
+    if not candidate_frames:
+        try:
+            df = safe_read_excel(XLSX, "Cost Codes")
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                candidate_frames.append(df)
+        except Exception:
+            pass
+    if not candidate_frames and HAVE_UTILS:
+        try:
+            df = load_cost_options(XLSX)
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                candidate_frames.append(df)
+        except Exception:
+            pass
+    if candidate_frames:
+        cost_df = candidate_frames[0].copy()
+        cost_df.columns = [str(c).strip() for c in cost_df.columns]
+        active_col = None
+        for cand in ("Active", "Is Active", "Enabled", "Include"):
+            if cand in cost_df.columns:
+                active_col = cand
+                break
+        if active_col is None:
+            if len(cost_df.columns) >= 3:
+                active_col = cost_df.columns[2]
+            elif len(cost_df.columns) > 0:
+                active_col = cost_df.columns[-1]
+        if active_col:
+            cost_df = cost_df[cost_df[active_col].apply(_is_truthy)]
+        descriptions = []
+        code_col = _find_col(cost_df, ["Cost Code", "Code", "Cost", "Code #"])
+        if code_col is None and len(cost_df.columns) > 0:
+            code_col = cost_df.columns[0]
+        desc_col = _find_col(cost_df, ["Description", "DESC", "Cost Description", "Name"])
+        if desc_col is None and len(cost_df.columns) > 1:
+            desc_col = cost_df.columns[1]
+        for _, row in cost_df.iterrows():
+            code = str(row.get(code_col, "")).strip() if code_col else ""
+            desc = str(row.get(desc_col, "")).strip() if desc_col else ""
+            if code:
+                descriptions.append(f"{code} - {desc}" if desc else code)
+        return sorted(pd.Series(descriptions).dropna().astype(str).unique().tolist())
+    return []
 
-cost_choice = st.selectbox(
-    "Cost Code - Description",
-    cost_options,
-    index=None,
-    placeholder="Select a cost code...",
-    key=f"cost_choice_{st.session_state.form_counter}"
-)
-
-st.divider()
-
+# --- Cost Codes ---
+cost_options = _load_active_cost_codes()
+if not cost_options:
+    st.warning("No active cost codes found. Check the Cost Codes sheet and ensure new rows are marked active (column C).")
 # --- Employees (simple multiselect dropdown only) ---
 try:
     _emp_df = smart_read_data("Employee List")
