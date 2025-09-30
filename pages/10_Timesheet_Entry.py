@@ -53,7 +53,6 @@ if GOOGLE_CONFIGURED and not HAVE_GOOGLE_SHEETS:
         st.warning("Google Sheets integration is configured, but required packages are missing. Install gspread and google-auth (e.g. run pip install -r requirements.txt) before exporting.")
         st.session_state["_google_dependency_warning_shown"] = True
 
-st.sidebar.info(f"Signed in as: {user} ({user_type})")
 
 # Initialize automatic data refresh trigger for truly dynamic dropdowns
 if "auto_fresh_data" not in st.session_state:
@@ -148,6 +147,47 @@ def _cached_sheet_data(sheet_name: str, cache_token: int, force_refresh: bool):
         st.warning(f"Google Sheets read issue for {sheet_name}: {e}")
     return pd.DataFrame()
 
+
+def _resolve_user_type(email: str, fallback: str) -> str:
+    """Lookup user status from Users sheet; fall back gracefully."""
+    if not email:
+        return fallback
+    try:
+        users_df = smart_read_data("Users", force_refresh=True)
+        if isinstance(users_df, pd.DataFrame) and not users_df.empty:
+            users_df = users_df.copy()
+            users_df.columns = [str(c).strip() for c in users_df.columns]
+            email_col = None
+            for cand in ("Email", "User Email", "Email Address", "E-mail", "Login", "User"):
+                if cand in users_df.columns:
+                    email_col = cand
+                    break
+            status_col = None
+            for cand in ("Status", "Role", "Access Level", "User Type", "Type", "Permission"):
+                if cand in users_df.columns:
+                    status_col = cand
+                    break
+            if email_col is None and len(users_df.columns) > 0:
+                email_col = users_df.columns[0]
+            if status_col is None:
+                if len(users_df.columns) >= 4:
+                    status_col = users_df.columns[3]
+                elif len(users_df.columns) > 0:
+                    status_col = users_df.columns[-1]
+            if email_col and status_col:
+                normalized_email = str(email).strip().lower()
+                matches = users_df[users_df[email_col].astype(str).str.strip().str.lower() == normalized_email]
+                if not matches.empty:
+                    value = str(matches.iloc[0][status_col]).strip()
+                    if value:
+                        return value
+    except Exception:
+        pass
+    return fallback
+
+user_type = _resolve_user_type(user, user_type)
+st.session_state["user_type"] = user_type
+st.sidebar.info(f"Signed in as: {user} ({user_type})")
 
 def smart_read_data(sheet_name, force_refresh=False):
     """Smart data reader that minimizes Google Sheets requests and falls back gracefully"""
