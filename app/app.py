@@ -18,9 +18,10 @@ st.header("Timesheet Entry")
 entry_form()
 
 st.divider()
-st.header("What's been added for this day")
+st.header("Construction Reporting")
 day_view()
 
 st.divider()
 st.header("Export Day → TimeEntries + Daily Report")
 export_panel()
+

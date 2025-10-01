@@ -245,7 +245,7 @@ else:
         **Use the sidebar to navigate to different features:**
 
         - **📝 Timesheet Entry** - Add and manage time entries
-        - **📊 What's Been Added Today** - View today's entries *(Admin Access)*
+        - **📊 Construction Reporting** - View today's entries *(Admin Access)*
         - **📤 Export Day** - Generate Daily Time and Daily Import reports
         - **⚙️ Admin** - Administrative functions *(Admin Access)*
 
