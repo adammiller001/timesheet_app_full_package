@@ -198,33 +198,6 @@ def get_available_worksheets(_: object = None):
             except Exception:
                 continue
     return titles
-
-def safe_read_excel(file_path, sheet_name, force_refresh=False):
-    """Safely read Excel file with optional force refresh"""
-    try:
-        file_path = Path(file_path)
-        if not file_path.exists():
-            st.error(f"Excel file not found: {file_path}")
-            return pd.DataFrame()
-
-        # Always use fresh read for truly dynamic dropdowns
-        # Check for auto refresh trigger or manual force refresh
-        if (force_refresh or
-            st.session_state.get("force_fresh_data", False) or
-            st.session_state.get("auto_fresh_data", False)):
-            return safe_read_excel_force_fresh(str(file_path), sheet_name)
-        else:
-            # Fallback to fresh read anyway
-            return safe_read_excel_force_fresh(str(file_path), sheet_name)
-    except Exception as e:
-        available_sheets = get_available_worksheets(file_path)
-        if available_sheets:
-            st.error(f"Error accessing worksheet '{sheet_name}'. Available worksheets: {', '.join(available_sheets)}")
-        else:
-            st.error(f"Error accessing Excel file: {e}")
-        return pd.DataFrame()
-
-
 def _prepare_time_data_dataframe(df: Optional[pd.DataFrame]) -> pd.DataFrame:
     if df is None or df.empty:
         df = pd.DataFrame(columns=TIME_DATA_COLUMNS)
