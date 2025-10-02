@@ -795,6 +795,43 @@ def _parse_hours_input(raw_value: str) -> Optional[float]:
 
 
 
+
+# --- Employees (simple multiselect dropdown only) ---
+try:
+    _emp_df = smart_read_data("Employee List", force_refresh=True)
+    if isinstance(_emp_df, pd.DataFrame) and not _emp_df.empty:
+        _emp_df = _emp_df.copy()
+        _emp_df.columns = [str(c).strip() for c in _emp_df.columns]
+        name_col = _find_col(_emp_df, ["Employee Name", "Name", "Employee"])
+        if not name_col:
+            name_col = "Employee Name"
+            if name_col not in _emp_df.columns:
+                _emp_df[name_col] = ""
+        active_col = _find_col(_emp_df, [
+            "Active", "Is Active", "Enabled", "Include", "Active?", "Active Flag", "Active (Y/N)"
+        ])
+        if active_col:
+            mask = _emp_df[active_col].apply(_is_truthy)
+            filtered = _emp_df[mask]
+            if not filtered.empty:
+                _emp_df = filtered
+        EMP_NAME_COL = name_col
+        _employee_options = sorted(_emp_df[EMP_NAME_COL].dropna().astype(str).unique().tolist())
+    else:
+        raise ValueError("Employee sheet empty")
+except Exception:
+    _emp_df = pd.DataFrame()
+    _employee_options = []
+    EMP_NAME_COL = "Employee Name"
+
+selected_employees = st.multiselect(
+    "Employees",
+    options=_employee_options,
+    default=[],
+    placeholder="Select one or more employees...",
+    key=f"selected_employees_{st.session_state.form_counter}"
+)
+
 def _load_active_job_options() -> list[str]:
     """Load active job options from Google Sheets."""
     try:
