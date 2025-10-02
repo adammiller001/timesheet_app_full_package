@@ -534,7 +534,9 @@ def save_to_session(new_rows):
 
         google_synced = True
         if GOOGLE_CONFIGURED and HAVE_GOOGLE_SHEETS:
-            google_synced = _replace_time_data_in_google(updated_df)
+            google_synced = _sync_time_data_to_google(new_data_df)
+            if not google_synced:
+                google_synced = _replace_time_data_in_google(updated_df)
             if not google_synced:
                 st.warning("Added lines locally, but could not update Google Sheets Time Data.")
 
