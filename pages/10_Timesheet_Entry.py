@@ -802,6 +802,19 @@ def _load_active_job_options() -> list[str]:
         st.warning(f"Could not load Job Numbers sheet: {exc}")
     return []
 
+job_options = _load_active_job_options()
+if not job_options:
+    st.warning("No active jobs found. Check the Job Numbers sheet and ensure new rows are marked active (column G).")
+
+job_choice = st.selectbox(
+    "Job Number - Area Number - Description",
+    job_options,
+    index=None,
+    placeholder="Select a job...",
+    key=f"job_choice_{st.session_state.form_counter}"
+)
+
+
 
 
 
@@ -839,6 +852,19 @@ def _load_active_cost_codes() -> list[str]:
     except Exception as exc:
         st.warning(f"Could not load Cost Codes sheet: {exc}")
     return []
+
+cost_options = _load_active_cost_codes()
+if not cost_options:
+    st.warning("No active cost codes found. Check the Cost Codes sheet and ensure new rows are marked active (column C).")
+
+cost_choice = st.selectbox(
+    "Cost Code - Description",
+    cost_options,
+    index=None,
+    placeholder="Select a cost code...",
+    key=f"cost_choice_{st.session_state.form_counter}"
+)
+
 
 
 def _normalize_night_flag(raw_value) -> str:
