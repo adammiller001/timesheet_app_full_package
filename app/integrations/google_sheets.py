@@ -395,12 +395,12 @@ def read_timesheet_data(worksheet_name: str, force_refresh: bool = False) -> pd.
     Falls back to Excel if Google Sheets is not configured
     """
     try:
-        if "google_sheets_id" in st.secrets and st.secrets["google_sheets_id"]:
+        sheet_id = st.secrets.get("google_sheets_id", "")
+        if sheet_id:
             manager = get_sheets_manager()
-            df = manager.read_worksheet(worksheet_name, st.secrets["google_sheets_id"], force_refresh=force_refresh)
+            df = manager.read_worksheet(worksheet_name, sheet_id, force_refresh=force_refresh)
             if isinstance(df, pd.DataFrame) and not df.empty:
                 return df
-        st.error("Google Sheets integration is not fully configured; unable to load data.")
     except Exception as exc:
         st.error(f"Failed to read {worksheet_name}: {exc}")
 

@@ -85,14 +85,16 @@ def safe_read_excel_force_fresh(file_path, sheet_name):
     return safe_read_excel(file_path, sheet_name, force_refresh=True)
 
 def safe_read_excel(file_path, sheet_name, force_refresh=False):
+    if not HAVE_GOOGLE_SHEETS or 'google_sheets_id' not in st.secrets or not st.secrets['google_sheets_id']:
+        return pd.DataFrame()
     try:
         df = read_timesheet_data(sheet_name, force_refresh=force_refresh)
         if isinstance(df, pd.DataFrame):
             df = df.copy()
             df.columns = [str(c).strip() for c in df.columns]
             return df
-    except Exception as exc:
-        st.error(f"Failed to read {sheet_name}: {exc}")
+    except Exception:
+        pass
     return pd.DataFrame()
 
 @st.cache_data(show_spinner=False, ttl=60)
