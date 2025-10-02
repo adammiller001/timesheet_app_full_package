@@ -52,6 +52,10 @@ def authenticate_user(email, force_refresh=False):
     """Check if user email exists in Users worksheet and return user type"""
     users_df, error = load_users(force_refresh=force_refresh)
     if error:
+        message = str(error)
+        if "not configured" in message.lower():
+            st.warning("Google Sheets integration is not configured; granting temporary admin access.")
+            return True, "Admin", None
         return False, "User", error
 
     if users_df.empty:
