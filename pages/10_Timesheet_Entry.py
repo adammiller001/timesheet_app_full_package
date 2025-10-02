@@ -1512,7 +1512,9 @@ if user_type.upper() == "ADMIN":
                                             continue
                                         employee_info[name] = {
                                             'indirect': str(emp_row.get("Indirect / Direct", "")).strip().upper() == "INDIRECT",
+                                            'premium_rate': str(emp_row.get("Premium Rate", "") or "").strip(),
                                             'subsistence': str(emp_row.get("Subsistence Rate", "") or "").strip(),
+                                            'travel_rate': str(emp_row.get("Travel Rate", "") or "").strip(),
                                             'night_shift': _normalize_night_flag(emp_row.get("Night Shift", "")),
                                             'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip()
                                         }
@@ -1548,14 +1550,16 @@ if user_type.upper() == "ADMIN":
                                                 return ''
                                             return str(val)
 
-                                        premium_rate = clean_value(row.get('Premium Rate', ''))
-                                        subsistence_rate = clean_value(row.get('Subsistence Rate', '')) or clean_value(emp_info.get('subsistence', ''))
-                                        travel_rate = clean_value(row.get('Travel Rate', ''))
+                                        premium_rate = clean_value(emp_info.get('premium_rate', '')) or clean_value(row.get('Premium Rate', ''))
+                                        subsistence_rate = clean_value(emp_info.get('subsistence', '')) or clean_value(row.get('Subsistence Rate', ''))
+                                        travel_rate = clean_value(emp_info.get('travel_rate', '')) or clean_value(row.get('Travel Rate', ''))
                                         night_shift = _normalize_night_flag(emp_info.get('night_shift', ''))
                                         if not night_shift:
                                             night_shift = _normalize_night_flag(row.get('Night Shift', ''))
 
                                         time_record_type = clean_value(emp_info.get('time_record_type', ''))
+
+                                        rate_cell = subsistence_rate or premium_rate or travel_rate
 
                                         base_data = [
                                             export_date.strftime('%Y-%m-%d'),  # A - Date
@@ -1570,9 +1574,9 @@ if user_type.upper() == "ADMIN":
                                             '211',                             # J - Pay Code (will be changed per entry)
                                             0.0,                               # K - Hours (will be set per entry)
                                             night_shift,                       # L - Night Shift
-                                            premium_rate,                      # M - Premium Rate
-                                            travel_rate,                       # N - Travel Rate
-                                            ''                                 # O - Empty (no comments)
+                                            rate_cell,                         # M - Rate cell (prefers Subsistence)
+                                            '',                                # N - Comments (left blank)
+                                            ''                                 # O - Extra column (left blank)
                                         ]
 
                                         rt_hours = float(row.get('RT Hours', 0) or 0)
