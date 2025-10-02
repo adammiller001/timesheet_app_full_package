@@ -1167,7 +1167,11 @@ with col1:
     st.subheader("Current Time Data")
 with col2:
     if st.button("🔄 Refresh Data", help="Clear cache and reload Time Data"):
+        refreshed_df, _ = _load_latest_time_data_for_sync()
+        if isinstance(refreshed_df, pd.DataFrame):
+            st.session_state.session_time_data = refreshed_df
         st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
+        st.success("Time Data reloaded from source.")
         st.rerun()
 
 try:
@@ -1246,6 +1250,7 @@ try:
                                     st.warning("Deleted entries locally, but external Time Data storage could not be updated.")
 
                                 st.session_state.session_time_data = updated_data
+                                st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
                                 st.success(f"Deleted {len(indices_to_delete)} selected entries from {date_val}.")
                                 st.rerun()
                             else:
@@ -1277,6 +1282,7 @@ try:
                                 st.warning("Deleted entries locally, but external Time Data storage could not be updated.")
 
                             st.session_state.session_time_data = remaining_data
+                            st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
                             st.success(f"Deleted {filtered_entries} entries from {date_val}.")
                             st.rerun()
 
