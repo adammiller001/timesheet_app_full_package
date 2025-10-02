@@ -157,27 +157,13 @@ if not st.session_state.get("authenticated", False):
     if not excel_path.exists():
         st.stop()
 
-    users_df, users_error = load_users(force_refresh=False)
-    active_emails: list[str] = []
-    if users_error:
-        st.warning(users_error)
-    elif not users_df.empty:
-        email_col = _find_column(users_df.columns, EMAIL_COLUMN_CANDIDATES)
-        if email_col and email_col in users_df.columns:
-            active_emails = sorted({str(v).strip() for v in users_df[email_col].dropna() if str(v).strip()}, key=lambda v: v.lower())
-
     with st.form("login_form"):
-        if active_emails:
-            select_options = ["Select your email..."] + active_emails
-            selection = st.selectbox("Email Address", select_options, index=0)
-            email = "" if selection == select_options[0] else selection.strip().lower()
-        else:
-            email = st.text_input("Email Address", placeholder="you@ptwenergy.com").strip().lower()
+        email = st.text_input("Email Address", placeholder="you@ptwenergy.com").strip().lower()
         submitted = st.form_submit_button("Sign In", type="primary")
 
         if submitted:
             if not email:
-                st.error("Please select or enter your email address")
+                st.error("Please enter your email address")
             else:
                 # Force refresh authentication data on every login attempt
                 is_valid, user_type, error = authenticate_user(email, force_refresh=True)
