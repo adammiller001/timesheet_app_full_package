@@ -935,6 +935,16 @@ selected_employees = st.multiselect(
     key=f"selected_employees_{st.session_state.form_counter}"
 )
 
+def _normalize_night_flag(raw_value) -> str:
+    if raw_value is None:
+        return ""
+    value = str(raw_value).strip()
+    if not value:
+        return ""
+    if value.upper() in {"Y", "YES", "TRUE", "1"}:
+        return "Y"
+    return ""
+
 def night_flag_for(_name: str) -> str:
     """Return 'Y' if employee has night shift flag, otherwise empty string"""
     try:
@@ -943,8 +953,7 @@ def night_flag_for(_name: str) -> str:
         _row = _emp_df.loc[_emp_df[EMP_NAME_COL].astype(str) == str(_name)]
         if _row.empty:
             return ""
-        _v = str(_row.iloc[0].get("Night Shift", "")).strip().upper()
-        return "Y" if _v in {"Y", "YES", "TRUE", "1"} else ""
+        return _normalize_night_flag(_row.iloc[0].get("Night Shift", ""))
     except Exception:
         return ""
 
@@ -1014,7 +1023,7 @@ if st.button("Add line", type="primary", disabled=add_disabled):
                         'subsistence': str(row.get("Subsistence Rate", "") or ""),
                         'travel': str(row.get("Travel Rate", "") or ""),
                         'indirect': str(row.get("Indirect / Direct", "")).strip().upper() == "INDIRECT",
-                        'night': "Y" if str(row.get("Night Shift", "")).strip().upper() in {"Y", "YES", "TRUE", "1"} else ""
+                        'night': _normalize_night_flag(row.get("Night Shift", ""))
                     }
             
             new_rows = []
@@ -1492,14 +1501,20 @@ if user_type.upper() == "ADMIN":
                         if timeentries_template.exists():
                             # Load employee data for rates (if not already loaded)
                             if 'employee_info' not in locals():
-                                employee_df = safe_read_excel(XLSX, "Employee List")
+                                employee_df = smart_read_data("Employee List", force_refresh=True)
                                 employee_info = {}
-                                if not employee_df.empty:
+                                if isinstance(employee_df, pd.DataFrame) and not employee_df.empty:
+                                    employee_df = employee_df.copy()
+                                    employee_df.columns = [str(c).strip() for c in employee_df.columns]
                                     for _, emp_row in employee_df.iterrows():
-                                        name = str(emp_row.get("Employee Name", ""))
+                                        name = str(emp_row.get("Employee Name", "")).strip()
+                                        if not name:
+                                            continue
                                         employee_info[name] = {
                                             'indirect': str(emp_row.get("Indirect / Direct", "")).strip().upper() == "INDIRECT",
-                                            'subsistence': str(emp_row.get("Subsistence Rate", "") or "")
+                                            'subsistence': str(emp_row.get("Subsistence Rate", "") or "").strip(),
+                                            'night_shift': _normalize_night_flag(emp_row.get("Night Shift", "")),
+                                            'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip()
                                         }
 
                             unique_jobs = filtered_data['Job Number'].dropna().unique()
@@ -1536,7 +1551,9 @@ if user_type.upper() == "ADMIN":
                                         premium_rate = clean_value(row.get('Premium Rate', ''))
                                         subsistence_rate = clean_value(row.get('Subsistence Rate', '')) or clean_value(emp_info.get('subsistence', ''))
                                         travel_rate = clean_value(row.get('Travel Rate', ''))
-                                        night_shift = clean_value(row.get('Night Shift', ''))
+                                        night_shift = _normalize_night_flag(row.get('Night Shift', ''))
+                                        if not night_shift:
+                                            night_shift = _normalize_night_flag(emp_info.get('night_shift', ''))
 
                                         time_record_type = clean_value(emp_info.get('time_record_type', ''))
 
