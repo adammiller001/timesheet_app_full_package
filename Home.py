@@ -1,12 +1,7 @@
 import streamlit as st
 import pandas as pd
 import time
-from pathlib import Path
-import tempfile
-import shutil
-
 from app.style_utils import apply_watermark
-from app.config import get_default_xlsx_path
 
 try:
     from app.integrations.google_sheets import read_timesheet_data, get_sheets_manager
@@ -26,84 +21,32 @@ st.set_page_config(
 apply_watermark()
 
 
-
-def safe_read_excel(file_path: Path, sheet_name: str, force_refresh: bool = False) -> pd.DataFrame:
-    """Safely read Excel file with optional force refresh."""
-    try:
-        if force_refresh:
-            _ = file_path.stat().st_mtime
-        return pd.read_excel(file_path, sheet_name=sheet_name)
-    except PermissionError:
-        try:
-            with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
-                shutil.copy2(file_path, tmp.name)
-                result = pd.read_excel(tmp.name, sheet_name=sheet_name)
-            Path(tmp.name).unlink(missing_ok=True)
-            return result
-        except Exception as exc:
-            st.error(f"Could not read Excel file. Error: {exc}")
-            return pd.DataFrame()
-    except Exception as exc:
-        st.error(f"Error reading Excel file: {exc}")
-        return pd.DataFrame()
-
-
 def load_users(force_refresh=False):
-    """Load users from Google Sheets when available, otherwise fall back to the local workbook."""
-    google_error = None
+    """Load users from Google Sheets and report any issues."""
     sheet_id = st.secrets.get("google_sheets_id", "")
-    if HAVE_GOOGLE_SHEETS and read_timesheet_data and sheet_id:
-        manager = get_sheets_manager()
-        if force_refresh:
-            if hasattr(manager, "_data_cache"):
-                manager._data_cache.pop("Users", None)  # type: ignore[attr-defined]
-            if hasattr(manager, "spreadsheet"):
-                manager.spreadsheet = None
-        worksheet, actual_title = manager.find_worksheet(["Users", "User"], sheet_id)
-        if actual_title:
-            try:
-                users_df = manager.read_worksheet(actual_title, sheet_id, force_refresh=force_refresh)
-                if not users_df.empty:
-                    users_df = users_df.copy()
-                    users_df.columns = [str(col).strip() for col in users_df.columns]
-                    return users_df, None
-                google_error = f"Google Sheets worksheet '{actual_title}' is empty."
-            except Exception as exc:
-                google_error = f"Google Sheets error: {exc}"
-        else:
-            google_error = "Users worksheet not found in Google Sheets."
-    else:
-        google_error = "Google Sheets integration is not configured."
+    if not (HAVE_GOOGLE_SHEETS and read_timesheet_data and sheet_id):
+        return pd.DataFrame(), "Google Sheets integration is not configured."
 
-    workbook_path = get_default_xlsx_path()
-    local_error = None
-    if workbook_path:
-        file_path = Path(workbook_path)
-        if file_path.exists():
-            try:
-                excel = pd.ExcelFile(file_path)
-                def _match(target: str) -> str | None:
-                    target_norm = target.strip().lower()
-                    for sheet in excel.sheet_names:
-                        if sheet.strip().lower() == target_norm:
-                            return sheet
-                    return None
-                for candidate in ("Users", "User"):
-                    sheet_name = _match(candidate)
-                    if not sheet_name:
-                        continue
-                    df = safe_read_excel(file_path, sheet_name, force_refresh=force_refresh)
-                    if not df.empty:
-                        df = df.copy()
-                        df.columns = [str(col).strip() for col in df.columns]
-                        return df, None
-                local_error = "Users worksheet not found in local workbook."
-            except Exception as exc:
-                local_error = f"Unable to read Excel workbook: {exc}"
-        else:
-            local_error = f"Excel file not found at {file_path}"
-    return pd.DataFrame(), local_error or google_error or local_error
-    return pd.DataFrame(), google_error
+    manager = get_sheets_manager()
+    if force_refresh:
+        if hasattr(manager, "_data_cache"):
+            manager._data_cache.pop("Users", None)  # type: ignore[attr-defined]
+        if hasattr(manager, "spreadsheet"):
+            manager.spreadsheet = None
+
+    worksheet, actual_title = manager.find_worksheet(["Users", "User"], sheet_id)
+    if not actual_title:
+        return pd.DataFrame(), "Users worksheet not found in Google Sheets."
+
+    try:
+        users_df = manager.read_worksheet(actual_title, sheet_id, force_refresh=force_refresh)
+        if users_df.empty:
+            return pd.DataFrame(), f"Google Sheets worksheet '{actual_title}' is empty."
+        users_df = users_df.copy()
+        users_df.columns = [str(col).strip() for col in users_df.columns]
+        return users_df, None
+    except Exception as exc:
+        return pd.DataFrame(), f"Google Sheets error: {exc}"
 
 def authenticate_user(email, force_refresh=False):
     """Check if user email exists in Users worksheet and return user type"""
@@ -175,6 +118,9 @@ if not st.session_state.get("authenticated", False):
     st.markdown("""<style>.block-container {padding-top: 9rem !important;}@media (max-width: 768px){.block-container {padding-top: 6rem !important;}}</style>""", unsafe_allow_html=True)
     st.title("🔐 PTW - Daily Timesheet Suite")
     st.markdown("### Please sign in with your work email")
+
+    if not excel_path.exists():
+        st.stop()
 
     with st.form("login_form"):
         email = st.text_input("Email Address", placeholder="you@ptwenergy.com").strip().lower()
