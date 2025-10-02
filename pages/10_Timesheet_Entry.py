@@ -796,59 +796,34 @@ def _parse_hours_input(raw_value: str) -> Optional[float]:
 
 
 
-# --- Employees (simple multiselect dropdown only) ---
-try:
-    _emp_df = smart_read_data("Employee List", force_refresh=True)
-    if isinstance(_emp_df, pd.DataFrame) and not _emp_df.empty:
-        _emp_df = _emp_df.copy()
-        _emp_df.columns = [str(c).strip() for c in _emp_df.columns]
-        name_col = _find_col(_emp_df, ["Employee Name", "Name", "Employee"])
-        if not name_col:
-            name_col = "Employee Name"
-            if name_col not in _emp_df.columns:
-                _emp_df[name_col] = ""
-        active_col = _find_col(_emp_df, [
-            "Active", "Is Active", "Enabled", "Include", "Active?", "Active Flag", "Active (Y/N)"
-        ])
-        if active_col:
-            mask = _emp_df[active_col].apply(_is_truthy)
-            filtered = _emp_df[mask]
-            if not filtered.empty:
-                _emp_df = filtered
-        EMP_NAME_COL = name_col
-        _employee_options = sorted(_emp_df[EMP_NAME_COL].dropna().astype(str).unique().tolist())
-    else:
-        raise ValueError("Employee sheet empty")
-except Exception:
-    _emp_df = pd.DataFrame()
-    _employee_options = []
-    EMP_NAME_COL = "Employee Name"
-
-selected_employees = st.multiselect(
-    "Employees",
-    options=_employee_options,
-    default=[],
-    placeholder="Select one or more employees...",
-    key=f"selected_employees_{st.session_state.form_counter}"
-)
 
 def _load_active_job_options() -> list[str]:
-    """Load active job options from Google Sheets."""
+    """Load active job options from Google Sheets (columns C, D, F, G)."""
     try:
         df = smart_read_data("Job Numbers", force_refresh=True)
         if isinstance(df, pd.DataFrame) and not df.empty:
             jobs_df = df.copy()
             jobs_df.columns = [str(c).strip() for c in jobs_df.columns]
-            original_df = jobs_df.copy()
-            active_col = _find_col(jobs_df, ["Active", "Is Active", "Enabled", "Include", "Active?", "Active Flag", "Active (Y/N)"])
-            if active_col is None and len(jobs_df.columns) >= 7:
-                active_col = jobs_df.columns[6]
-            if active_col:
+            cols = list(jobs_df.columns)
+            job_col = cols[2] if len(cols) > 2 else cols[0]
+            area_col = cols[3] if len(cols) > 3 else cols[min(1, len(cols)-1)]
+            desc_col = cols[5] if len(cols) > 5 else cols[min(2, len(cols)-1)]
+            active_col = cols[6] if len(cols) > 6 else None
+            if active_col and active_col in jobs_df.columns:
                 mask = jobs_df[active_col].apply(_is_truthy)
-                jobs_df = jobs_df[mask]
-                if jobs_df.empty:
-                    jobs_df = original_df
-            return _build_job_options_local(jobs_df)
+                filtered = jobs_df[mask]
+                if not filtered.empty:
+                    jobs_df = filtered
+            options = []
+            for _, row in jobs_df.iterrows():
+                job = str(row.get(job_col, "") or "").strip()
+                area = _pad_area(row.get(area_col, "")) if area_col else "000"
+                desc = str(row.get(desc_col, "") or "").strip() if desc_col else ""
+                if job or area or desc:
+                    label = f"{job} - {area} - {desc}" if desc else f"{job} - {area}"
+                    options.append(label.strip(' -'))
+            if options:
+                return sorted(pd.Series(options).dropna().astype(str).unique().tolist())
     except Exception as exc:
         st.warning(f"Could not load Job Numbers sheet: {exc}")
     return []
@@ -871,30 +846,27 @@ job_choice = st.selectbox(
 
 
 
+
+
 def _load_active_cost_codes() -> list[str]:
-    """Return active cost code options from Google Sheets."""
+    """Return active cost code options from Google Sheets (columns A, B, C)."""
     try:
         df = smart_read_data("Cost Codes", force_refresh=True)
         if isinstance(df, pd.DataFrame) and not df.empty:
             cost_df = df.copy()
             cost_df.columns = [str(c).strip() for c in cost_df.columns]
-            original_df = cost_df.copy()
-            active_col = None
-            for cand in ("Active", "Is Active", "Enabled", "Include", "Active?", "Active Flag", "Active (Y/N)"):
-                if cand in cost_df.columns:
-                    active_col = cand
-                    break
-            if active_col is None and len(cost_df.columns) > 2:
-                active_col = cost_df.columns[2]
-            if active_col:
-                cost_df = cost_df[cost_df[active_col].apply(_is_truthy)]
-                if cost_df.empty:
-                    cost_df = original_df
+            cols = list(cost_df.columns)
+            code_col = cols[0]
+            desc_col = cols[1] if len(cols) > 1 else cols[0]
+            active_col = cols[2] if len(cols) > 2 else None
+            if active_col and active_col in cost_df.columns:
+                mask = cost_df[active_col].apply(_is_truthy)
+                filtered = cost_df[mask]
+                if not filtered.empty:
+                    cost_df = filtered
             descriptions = []
-            code_col = _find_col(cost_df, ["Cost Code", "Code", "Cost", "Code #"]) or (cost_df.columns[0] if len(cost_df.columns) > 0 else None)
-            desc_col = _find_col(cost_df, ["Description", "DESC", "Cost Description", "Name"]) or (cost_df.columns[1] if len(cost_df.columns) > 1 else None)
             for _, row in cost_df.iterrows():
-                code = str(row.get(code_col, "") or "").strip() if code_col else ""
+                code = str(row.get(code_col, "") or "").strip()
                 desc = str(row.get(desc_col, "") or "").strip() if desc_col else ""
                 if code:
                     descriptions.append(f"{code} - {desc}" if desc else code)
@@ -915,6 +887,39 @@ cost_choice = st.selectbox(
     placeholder="Select a cost code...",
     key=f"cost_choice_{st.session_state.form_counter}"
 )
+
+
+# --- Employees (simple multiselect dropdown only) ---
+try:
+    _emp_df = smart_read_data("Employee List", force_refresh=True)
+    if isinstance(_emp_df, pd.DataFrame) and not _emp_df.empty:
+        _emp_df = _emp_df.copy()
+        _emp_df.columns = [str(c).strip() for c in _emp_df.columns]
+        cols = list(_emp_df.columns)
+        name_col = cols[2] if len(cols) > 2 else cols[0]
+        active_col = cols[10] if len(cols) > 10 else None
+        if active_col and active_col in _emp_df.columns:
+            mask = _emp_df[active_col].apply(_is_truthy)
+            filtered = _emp_df[mask]
+            if not filtered.empty:
+                _emp_df = filtered
+        EMP_NAME_COL = name_col
+        _employee_options = sorted(_emp_df[EMP_NAME_COL].dropna().astype(str).unique().tolist())
+    else:
+        raise ValueError("Employee sheet empty")
+except Exception:
+    _emp_df = pd.DataFrame()
+    _employee_options = []
+    EMP_NAME_COL = "Employee Name"
+
+selected_employees = st.multiselect(
+    "Employees",
+    options=_employee_options,
+    default=[],
+    placeholder="Select one or more employees...",
+    key=f"selected_employees_{st.session_state.form_counter}"
+)
+
 
 
 
