@@ -52,9 +52,10 @@ try:
 except Exception:
     service_account_email = ""
 if not st.session_state.get("_sheets_debug_shown", False):
-    debug_id = f"{sheet_id_value[:6]}..." if sheet_id_value and len(sheet_id_value) > 10 else sheet_id_value
-    debug_email = service_account_email if service_account_email else "missing"
-    st.caption(f"Sheets config -> ID set: {bool(sheet_id_value)}, ID: {debug_id or 'n/a'}, service account: {debug_email}, gspread import: {HAVE_GOOGLE_SHEETS}")
+    if not sheet_id_value or not service_account_email or not HAVE_GOOGLE_SHEETS:
+        debug_id = f"{sheet_id_value[:6]}..." if sheet_id_value and len(sheet_id_value) > 10 else sheet_id_value
+        debug_email = service_account_email if service_account_email else "missing"
+        st.caption(f"Sheets config issue -> ID set: {bool(sheet_id_value)}, ID: {debug_id or 'n/a'}, service account: {debug_email}, gspread import: {HAVE_GOOGLE_SHEETS}")
     st.session_state['_sheets_debug_shown'] = True
 GOOGLE_CONFIGURED = (
     "google_sheets_id" in st.secrets
@@ -245,7 +246,6 @@ def _fetch_sheet_dataframe(primary_sheet: str, alt_names: Optional[tuple[str, ..
         df = df.copy()
         df.columns = [str(c).strip() for c in df.columns]
         return df
-    st.info(f"DEBUG: {primary_sheet} returned 0 rows (sheet_id set: {bool(sheet_id)}, gspread available: {HAVE_GOOGLE_SHEETS})")
     return pd.DataFrame()
 
 def get_available_worksheets(_: object = None):
@@ -919,7 +919,6 @@ job_choice = st.selectbox(
     placeholder="Select a job...",
     key=f"job_choice_{st.session_state.form_counter}"
 )
-st.caption(f"Job rows fetched: {job_total_rows}, active flagged: {job_active_rows}")
 
 
 
@@ -975,7 +974,6 @@ cost_choice = st.selectbox(
     placeholder="Select a cost code...",
     key=f"cost_choice_{st.session_state.form_counter}"
 )
-st.caption(f"Cost code rows fetched: {cost_total_rows}, active flagged: {cost_active_rows}")
 
 
 # --- Employees (simple multiselect dropdown only) ---
@@ -1019,7 +1017,6 @@ selected_employees = st.multiselect(
     placeholder="Select one or more employees...",
     key=f"selected_employees_{st.session_state.form_counter}"
 )
-st.caption(f"Employee rows fetched: {employee_total_rows}, active flagged: {employee_active_rows}")
 
 
 
