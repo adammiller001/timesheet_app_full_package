@@ -54,7 +54,7 @@ def _coerce_hours_df(df: pd.DataFrame) -> pd.DataFrame:
 
 def _templates_missing():
     missing = []
-    for name in ("Daily Time.xlsx","TimeEntries.xlsx","TimeSheet Apps.xlsx"):
+    for name in ("Daily Time.xlsx", "TimeEntries.xlsx"):
         if not (ROOT / name).exists():
             missing.append(name)
     return missing

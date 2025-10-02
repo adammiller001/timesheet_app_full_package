@@ -6,7 +6,7 @@ This guide will help you set up Google Sheets integration for your PTW Timesheet
 
 1. **Upload to Google Drive:**
    - Go to [Google Drive](https://drive.google.com)
-   - Upload your `TimeSheet Apps.xlsx` file
+   - Upload your existing timesheet workbook (Excel)
    - Right-click the uploaded file → "Open with" → "Google Sheets"
    - This converts it to Google Sheets format
 

@@ -58,7 +58,7 @@ if GOOGLE_CONFIGURED and not HAVE_GOOGLE_SHEETS:
 if "auto_fresh_data" not in st.session_state:
     st.session_state.auto_fresh_data = True
 
-XLSX = Path(__file__).resolve().parent.parent / "TimeSheet Apps.xlsx"
+XLSX = None
 
 TIME_DATA_COLUMNS = [
     "Job Number", "Job Area", "Date", "Name", "Trade Class",
@@ -69,23 +69,8 @@ TIME_DATA_COLUMNS = [
 
 # File modification time monitoring for automatic reloads
 def check_file_modified():
-    """Check if Excel file has been modified and force reload if needed"""
-    try:
-        if not XLSX.exists():
-            return False
-
-        current_mtime = XLSX.stat().st_mtime
-        last_mtime = st.session_state.get("xlsx_last_mtime", 0)
-
-        if current_mtime > last_mtime:
-            st.session_state.xlsx_last_mtime = current_mtime
-            if last_mtime > 0:  # Don't show on first load
-                st.success(f"📁 Excel file updated - Reloading dropdowns automatically")
-                st.rerun()
-            return True
-        return False
-    except Exception:
-        return False
+    """Placeholder: Google Sheets updates are handled via cache refresh."""
+    return False
 
 # Check for file modifications
 check_file_modified()
@@ -96,46 +81,19 @@ if hasattr(pd.io.common, '_maybe_convert_usecols'):
     pd.io.common._maybe_convert_usecols = lambda x: x  # Disable column caching
 
 def safe_read_excel_force_fresh(file_path, sheet_name):
-    """Force fresh read without any caching"""
-    # Clear any potential pandas caching
-    if hasattr(pd, '_cache'):
-        pd._cache.clear()
-    return _safe_read_excel_internal(file_path, sheet_name)
+    """Legacy helper retained for compatibility; reads from Google Sheets."""
+    return safe_read_excel(file_path, sheet_name, force_refresh=True)
 
-def _safe_read_excel_internal(file_path, sheet_name):
-    """Internal function that does the actual Excel reading"""
+def safe_read_excel(file_path, sheet_name, force_refresh=False):
     try:
-        # Force completely fresh file read by copying to unique temp file every time
-        file_path_obj = Path(file_path)
-        if not file_path_obj.exists():
-            raise FileNotFoundError(f"Excel file not found: {file_path}")
-
-        # Always create temp file to bypass any caching
-        import tempfile
-        import shutil
-        with tempfile.NamedTemporaryFile(suffix=f'_{int(time.time() * 1000)}.xlsx', delete=False) as tmp:
-            shutil.copy2(file_path, tmp.name)
-            result = pd.read_excel(tmp.name, sheet_name=sheet_name)
-            try:
-                os.unlink(tmp.name)  # Clean up
-            except:
-                pass  # Ignore cleanup errors
-            return result
-    except PermissionError:
-        import tempfile
-        import shutil
-        try:
-            with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
-                shutil.copy2(file_path, tmp.name)
-                result = pd.read_excel(tmp.name, sheet_name=sheet_name)
-                os.unlink(tmp.name)
-                return result
-        except Exception as e:
-            st.error(f"Could not read Excel file. Please close Excel and try again. Error: {e}")
-            return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Error reading Excel file: {e}")
-        return pd.DataFrame()
+        df = read_timesheet_data(sheet_name, force_refresh=force_refresh)
+        if isinstance(df, pd.DataFrame):
+            df = df.copy()
+            df.columns = [str(c).strip() for c in df.columns]
+            return df
+    except Exception as exc:
+        st.error(f"Failed to read {sheet_name}: {exc}")
+    return pd.DataFrame()
 
 @st.cache_data(show_spinner=False, ttl=60)
 def _cached_sheet_data(sheet_name: str, cache_token: int, force_refresh: bool):
@@ -214,16 +172,30 @@ def smart_read_data(sheet_name, force_refresh=False):
         st.error(f"Failed to load {sheet_name}: {e}")
         return pd.DataFrame()
 
-def get_available_worksheets(file_path):
-    """Get list of available worksheets in Excel file"""
-    try:
-        import openpyxl
-        wb = openpyxl.load_workbook(file_path, read_only=True)
-        sheets = wb.sheetnames
-        wb.close()
-        return sheets
-    except Exception:
+def get_available_worksheets(_: object = None):
+    """Get list of available worksheets in the configured Google Sheet"""
+    sheet_id = st.secrets.get("google_sheets_id", "")
+    if not sheet_id or not HAVE_GOOGLE_SHEETS:
         return []
+    manager = get_sheets_manager()
+    titles = []
+    try:
+        worksheets = manager._list_worksheets_http(sheet_id) if hasattr(manager, "_list_worksheets_http") else []
+        if hasattr(manager, "spreadsheet") and manager.spreadsheet:
+            worksheets = manager.spreadsheet.worksheets()
+    except Exception:
+        worksheets = []
+    for ws in worksheets:
+        if isinstance(ws, str):
+            titles.append(ws)
+        elif isinstance(ws, dict) and 'title' in ws:
+            titles.append(ws['title'])
+        else:
+            try:
+                titles.append(ws.title)
+            except Exception:
+                continue
+    return titles
 
 def safe_read_excel(file_path, sheet_name, force_refresh=False):
     """Safely read Excel file with optional force refresh"""
@@ -270,47 +242,19 @@ def _prepare_time_data_dataframe(df: Optional[pd.DataFrame]) -> pd.DataFrame:
     return df
 
 def _load_time_data_from_excel() -> pd.DataFrame:
-    try:
-        if not XLSX.exists():
-            return pd.DataFrame(columns=TIME_DATA_COLUMNS)
-        df = safe_read_excel_force_fresh(str(XLSX), 'Time Data')
-        if isinstance(df, pd.DataFrame):
-            df.columns = [str(col).strip() for col in df.columns]
+    df = safe_read_excel(None, 'Time Data', force_refresh=True)
+    if isinstance(df, pd.DataFrame):
+        df.columns = [str(col).strip() for col in df.columns]
         return _prepare_time_data_dataframe(df)
-    except Exception:
-        return pd.DataFrame(columns=TIME_DATA_COLUMNS)
+    return pd.DataFrame(columns=TIME_DATA_COLUMNS)
 
 def _write_time_data_to_excel(df: pd.DataFrame) -> bool:
-    try:
-        df_to_write = _prepare_time_data_dataframe(df)
-        if XLSX.exists():
-            with pd.ExcelWriter(str(XLSX), engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-                df_to_write.to_excel(writer, sheet_name='Time Data', index=False)
-        else:
-            with pd.ExcelWriter(str(XLSX), engine='openpyxl') as writer:
-                df_to_write.to_excel(writer, sheet_name='Time Data', index=False)
-        return True
-    except PermissionError:
-        st.warning('Could not update local Time Data worksheet. Please close the Excel file and try again.')
-        return False
-    except Exception as e:
-        st.warning(f'Could not update local Time Data worksheet: {e}')
-        return False
+    """Legacy shim: local workbook writes are no longer used."""
+    return True
 
 def _append_time_data_to_excel(new_data_df: pd.DataFrame) -> bool:
-    if new_data_df is None or new_data_df.empty:
-        return True
-    try:
-        prepared_new = _prepare_time_data_dataframe(new_data_df)
-        existing = _load_time_data_from_excel()
-        if existing.empty:
-            combined = prepared_new
-        else:
-            combined = pd.concat([existing, prepared_new], ignore_index=True)
-        return _write_time_data_to_excel(combined)
-    except Exception as e:
-        st.warning(f'Could not update local Time Data worksheet: {e}')
-        return False
+    """Legacy shim to preserve previous workflow."""
+    return True
 
 def _load_latest_time_data_for_sync() -> tuple[pd.DataFrame, str]:
     try:
@@ -634,8 +578,8 @@ if False:
 
         # Try direct pandas read
         try:
-            direct_read = pd.read_excel(XLSX, sheet_name="Employee List")
-            st.write(f"Direct pandas read: {len(direct_read)} rows")
+            direct_read = smart_read_data("Employee List", force_refresh=True)
+            st.write(f"Google read (direct): {len(direct_read)} rows")
         except Exception as e:
             st.write(f"Direct read failed: {e}")
 

@@ -6,7 +6,6 @@ Run locally:
 
 Repo layout:
 - app/                      → Streamlit app modules
-- TimeSheet Apps.xlsx       → data workbook (read/write)
 - TimeEntries.xlsx          → per‑job export template (sheet: 'TimeEntries')
 - Daily Time.xlsx           → daily report template
 - requirements.txt          → Python deps

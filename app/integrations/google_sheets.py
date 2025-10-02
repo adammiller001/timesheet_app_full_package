@@ -400,14 +400,7 @@ def read_timesheet_data(worksheet_name: str, force_refresh: bool = False) -> pd.
             df = manager.read_worksheet(worksheet_name, st.secrets["google_sheets_id"], force_refresh=force_refresh)
             if isinstance(df, pd.DataFrame) and not df.empty:
                 return df
-
-        # Fallback to Excel file
-        from pathlib import Path
-        excel_path = Path(__file__).parent.parent.parent / "TimeSheet Apps.xlsx"
-        if excel_path.exists():
-            df = pd.read_excel(excel_path, sheet_name=worksheet_name)
-            return df
-
+        st.error("Google Sheets integration is not fully configured; unable to load data.")
     except Exception as exc:
         st.error(f"Failed to read {worksheet_name}: {exc}")
 
