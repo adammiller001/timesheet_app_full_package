@@ -779,53 +779,33 @@ def _parse_hours_input(raw_value: str) -> Optional[float]:
     return round(value, 2)
 
 
+
+
 def _load_active_job_options() -> list[str]:
-    """Load active job options from Google Sheets (fallback to Excel/utilities)."""
-    candidate_frames = []
+    """Load active job options from Google Sheets."""
     try:
         df = smart_read_data("Job Numbers", force_refresh=True)
         if isinstance(df, pd.DataFrame) and not df.empty:
-            candidate_frames.append(df)
-    except Exception:
-        pass
-    if not candidate_frames:
-        try:
-            df = safe_read_excel(XLSX, "Job Numbers")
-            if isinstance(df, pd.DataFrame) and not df.empty:
-                candidate_frames.append(df)
-        except Exception:
-            pass
-    if not candidate_frames and HAVE_UTILS:
-        try:
-            df = load_jobs_active(XLSX)
-            if isinstance(df, pd.DataFrame) and not df.empty:
-                candidate_frames.append(df)
-        except Exception:
-            pass
-    if candidate_frames:
-        jobs_df = candidate_frames[0].copy()
-        jobs_df.columns = [str(c).strip() for c in jobs_df.columns]
-        active_col = _find_col(jobs_df, ["Active", "Is Active", "Enabled", "Include"])
-        if active_col is None and len(jobs_df.columns) >= 7:
-            active_col = jobs_df.columns[6]
-        if active_col:
-            mask = jobs_df[active_col].apply(_is_truthy)
-            jobs_df = jobs_df[mask]
-        return _build_job_options_local(jobs_df)
+            jobs_df = df.copy()
+            jobs_df.columns = [str(c).strip() for c in jobs_df.columns]
+            original_df = jobs_df.copy()
+            active_col = _find_col(jobs_df, ["Active", "Is Active", "Enabled", "Include", "Active?", "Active Flag", "Active (Y/N)"])
+            if active_col is None and len(jobs_df.columns) >= 7:
+                active_col = jobs_df.columns[6]
+            if active_col:
+                mask = jobs_df[active_col].apply(_is_truthy)
+                jobs_df = jobs_df[mask]
+                if jobs_df.empty:
+                    jobs_df = original_df
+            return _build_job_options_local(jobs_df)
+    except Exception as exc:
+        st.warning(f"Could not load Job Numbers sheet: {exc}")
     return []
 
-# --- Jobs (Active) ---
-job_options = _load_active_job_options()
-if not job_options:
-    st.warning("No active jobs found. Check the Job Numbers sheet and ensure new rows are marked active (column G).")
 
-job_choice = st.selectbox(
-    "Job Number - Area Number - Description",
-    job_options,
-    index=None,
-    placeholder="Select a job...",
-    key=f"job_choice_{st.session_state.form_counter}"
-)
+
+
+
 
 def _load_active_cost_codes() -> list[str]:
     """Return active cost code options from Google Sheets."""
@@ -834,8 +814,9 @@ def _load_active_cost_codes() -> list[str]:
         if isinstance(df, pd.DataFrame) and not df.empty:
             cost_df = df.copy()
             cost_df.columns = [str(c).strip() for c in cost_df.columns]
+            original_df = cost_df.copy()
             active_col = None
-            for cand in ("Active", "Is Active", "Enabled", "Include"):
+            for cand in ("Active", "Is Active", "Enabled", "Include", "Active?", "Active Flag", "Active (Y/N)"):
                 if cand in cost_df.columns:
                     active_col = cand
                     break
@@ -843,12 +824,14 @@ def _load_active_cost_codes() -> list[str]:
                 active_col = cost_df.columns[2]
             if active_col:
                 cost_df = cost_df[cost_df[active_col].apply(_is_truthy)]
+                if cost_df.empty:
+                    cost_df = original_df
             descriptions = []
             code_col = _find_col(cost_df, ["Cost Code", "Code", "Cost", "Code #"]) or (cost_df.columns[0] if len(cost_df.columns) > 0 else None)
             desc_col = _find_col(cost_df, ["Description", "DESC", "Cost Description", "Name"]) or (cost_df.columns[1] if len(cost_df.columns) > 1 else None)
             for _, row in cost_df.iterrows():
-                code = str(row.get(code_col, "")).strip() if code_col else ""
-                desc = str(row.get(desc_col, "")).strip() if desc_col else ""
+                code = str(row.get(code_col, "") or "").strip() if code_col else ""
+                desc = str(row.get(desc_col, "") or "").strip() if desc_col else ""
                 if code:
                     descriptions.append(f"{code} - {desc}" if desc else code)
             if descriptions:
@@ -857,50 +840,6 @@ def _load_active_cost_codes() -> list[str]:
         st.warning(f"Could not load Cost Codes sheet: {exc}")
     return []
 
-# --- Cost Codes ---
-cost_options = _load_active_cost_codes()
-if not cost_options:
-    st.warning("No active cost codes found. Check the Cost Codes sheet and ensure new rows are marked active (column C).")
-
-cost_choice = st.selectbox(
-    "Cost Code - Description",
-    cost_options,
-    index=None,
-    placeholder="Select a cost code...",
-    key=f"cost_choice_{st.session_state.form_counter}"
-)
-
-# --- Employees (simple multiselect dropdown only) ---
-try:
-    _emp_df = smart_read_data("Employee List", force_refresh=True)
-    _emp_df.columns = [str(c).strip() for c in _emp_df.columns]
-
-    if "Active" in _emp_df.columns:
-        # Handle both boolean and string values
-        _emp_df = _emp_df[(_emp_df["Active"] == True) | (_emp_df["Active"].astype(str).str.upper().isin(["TRUE", "YES", "Y", "1"]))]
-
-    EMP_NAME_COL = _find_col(_emp_df, ["Employee Name", "Name"])
-    if not EMP_NAME_COL:
-        EMP_NAME_COL = "Employee Name"
-        if EMP_NAME_COL not in _emp_df.columns:
-            _emp_df[EMP_NAME_COL] = ""
-
-    _employee_options = sorted(_emp_df[EMP_NAME_COL].dropna().astype(str).unique().tolist())
-
-    # Debug removed - working properly
-
-except Exception:
-    _emp_df = pd.DataFrame()
-    _employee_options = []
-    EMP_NAME_COL = "Employee Name"
-
-selected_employees = st.multiselect(
-    "Employees",
-    options=_employee_options,
-    default=[],
-    placeholder="Select one or more employees...",
-    key=f"selected_employees_{st.session_state.form_counter}"
-)
 
 def _normalize_night_flag(raw_value) -> str:
     if raw_value is None:
