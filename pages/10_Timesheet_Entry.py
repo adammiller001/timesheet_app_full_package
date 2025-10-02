@@ -828,56 +828,33 @@ job_choice = st.selectbox(
 )
 
 def _load_active_cost_codes() -> list[str]:
-    """Return active cost code options from Google Sheets, fallback to Excel/utilities."""
-    candidate_frames = []
+    """Return active cost code options from Google Sheets."""
     try:
         df = smart_read_data("Cost Codes", force_refresh=True)
         if isinstance(df, pd.DataFrame) and not df.empty:
-            candidate_frames.append(df)
-    except Exception:
-        pass
-    if not candidate_frames:
-        try:
-            df = safe_read_excel(XLSX, "Cost Codes")
-            if isinstance(df, pd.DataFrame) and not df.empty:
-                candidate_frames.append(df)
-        except Exception:
-            pass
-    if not candidate_frames and HAVE_UTILS:
-        try:
-            df = load_cost_options(XLSX)
-            if isinstance(df, pd.DataFrame) and not df.empty:
-                candidate_frames.append(df)
-        except Exception:
-            pass
-    if candidate_frames:
-        cost_df = candidate_frames[0].copy()
-        cost_df.columns = [str(c).strip() for c in cost_df.columns]
-        active_col = None
-        for cand in ("Active", "Is Active", "Enabled", "Include"):
-            if cand in cost_df.columns:
-                active_col = cand
-                break
-        if active_col is None:
-            if len(cost_df.columns) >= 3:
+            cost_df = df.copy()
+            cost_df.columns = [str(c).strip() for c in cost_df.columns]
+            active_col = None
+            for cand in ("Active", "Is Active", "Enabled", "Include"):
+                if cand in cost_df.columns:
+                    active_col = cand
+                    break
+            if active_col is None and len(cost_df.columns) > 2:
                 active_col = cost_df.columns[2]
-            elif len(cost_df.columns) > 0:
-                active_col = cost_df.columns[-1]
-        if active_col:
-            cost_df = cost_df[cost_df[active_col].apply(_is_truthy)]
-        descriptions = []
-        code_col = _find_col(cost_df, ["Cost Code", "Code", "Cost", "Code #"])
-        if code_col is None and len(cost_df.columns) > 0:
-            code_col = cost_df.columns[0]
-        desc_col = _find_col(cost_df, ["Description", "DESC", "Cost Description", "Name"])
-        if desc_col is None and len(cost_df.columns) > 1:
-            desc_col = cost_df.columns[1]
-        for _, row in cost_df.iterrows():
-            code = str(row.get(code_col, "")).strip() if code_col else ""
-            desc = str(row.get(desc_col, "")).strip() if desc_col else ""
-            if code:
-                descriptions.append(f"{code} - {desc}" if desc else code)
-        return sorted(pd.Series(descriptions).dropna().astype(str).unique().tolist())
+            if active_col:
+                cost_df = cost_df[cost_df[active_col].apply(_is_truthy)]
+            descriptions = []
+            code_col = _find_col(cost_df, ["Cost Code", "Code", "Cost", "Code #"]) or (cost_df.columns[0] if len(cost_df.columns) > 0 else None)
+            desc_col = _find_col(cost_df, ["Description", "DESC", "Cost Description", "Name"]) or (cost_df.columns[1] if len(cost_df.columns) > 1 else None)
+            for _, row in cost_df.iterrows():
+                code = str(row.get(code_col, "")).strip() if code_col else ""
+                desc = str(row.get(desc_col, "")).strip() if desc_col else ""
+                if code:
+                    descriptions.append(f"{code} - {desc}" if desc else code)
+            if descriptions:
+                return sorted(pd.Series(descriptions).dropna().astype(str).unique().tolist())
+    except Exception as exc:
+        st.warning(f"Could not load Cost Codes sheet: {exc}")
     return []
 
 # --- Cost Codes ---
