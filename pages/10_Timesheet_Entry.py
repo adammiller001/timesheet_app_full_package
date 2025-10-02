@@ -527,14 +527,18 @@ def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
         employee_df.columns = [str(c).strip() for c in employee_df.columns]
         info = {}
         name_col = _find_col(employee_df, ["Employee Name", "Name"]) or "Employee Name"
+        night_col = _find_col(employee_df, ["Night Shift", "NightShift", "Nightshift", "Night"]) or "Night Shift"
+        premium_col = _find_col(employee_df, ["Premium Rate", "Premium"]) or "Premium Rate"
+        subsistence_col = _find_col(employee_df, ["Subsistence Rate", "Subsistence", "Column H"]) or "Subsistence Rate"
+        travel_col = _find_col(employee_df, ["Travel Rate", "Travel"]) or "Travel Rate"
         for _, emp_row in employee_df.iterrows():
             name = str(emp_row.get(name_col, "")).strip()
             if not name:
                 continue
-            night_val = _normalize_night_flag(emp_row.get("Night Shift", ""))
-            premium_val = str(emp_row.get("Premium Rate", "") or "").strip()
-            subsistence_val = str(emp_row.get("Subsistence Rate", "") or "").strip()
-            travel_val = str(emp_row.get("Travel Rate", "") or "").strip()
+            night_val = _normalize_night_flag(emp_row.get(night_col, ""))
+            premium_val = str(emp_row.get(premium_col, "") or "").strip()
+            subsistence_val = str(emp_row.get(subsistence_col, "") or "").strip()
+            travel_val = str(emp_row.get(travel_col, "") or "").strip()
             info[name] = {
                 "night": night_val,
                 "premium": '' if _is_blank_value(premium_val) else premium_val,
@@ -551,14 +555,10 @@ def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
             details = info.get(name)
             if not details:
                 continue
-            if not _normalize_night_flag(row.get("Night Shift", "")) and details["night"]:
-                df.at[idx, "Night Shift"] = details["night"]
-            if _is_blank_value(row.get("Premium Rate", "")) and details["premium"]:
-                df.at[idx, "Premium Rate"] = details["premium"]
-            if _is_blank_value(row.get("Subsistence Rate", "")) and details["subsistence"]:
-                df.at[idx, "Subsistence Rate"] = details["subsistence"]
-            if _is_blank_value(row.get("Travel Rate", "")) and details["travel"]:
-                df.at[idx, "Travel Rate"] = details["travel"]
+            df.at[idx, "Night Shift"] = details.get("night", "") or ""
+            df.at[idx, "Premium Rate"] = details.get("premium", "")
+            df.at[idx, "Subsistence Rate"] = details.get("subsistence", "")
+            df.at[idx, "Travel Rate"] = details.get("travel", "")
         return df
     except Exception:
         return df
