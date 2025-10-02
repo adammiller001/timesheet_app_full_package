@@ -13,6 +13,7 @@ from shutil import copyfile
 from time import sleep
 import time
 from app.style_utils import apply_watermark
+from app.config import get_default_xlsx_path
 from datetime import datetime, date
 from typing import Optional
 
@@ -58,7 +59,10 @@ if GOOGLE_CONFIGURED and not HAVE_GOOGLE_SHEETS:
 if "auto_fresh_data" not in st.session_state:
     st.session_state.auto_fresh_data = True
 
-XLSX = None
+DEFAULT_XLSX_PATH = get_default_xlsx_path()
+XLSX = Path(DEFAULT_XLSX_PATH) if DEFAULT_XLSX_PATH else None
+if XLSX and not XLSX.exists():
+    XLSX = None
 
 TIME_DATA_COLUMNS = [
     "Job Number", "Job Area", "Date", "Name", "Trade Class",
@@ -87,13 +91,50 @@ def safe_read_excel_force_fresh(file_path, sheet_name):
 def safe_read_excel(file_path, sheet_name, force_refresh=False):
     try:
         df = read_timesheet_data(sheet_name, force_refresh=force_refresh)
-        if isinstance(df, pd.DataFrame):
+        if isinstance(df, pd.DataFrame) and not df.empty:
             df = df.copy()
             df.columns = [str(c).strip() for c in df.columns]
             return df
     except Exception as exc:
         st.error(f"Failed to read {sheet_name}: {exc}")
-    return pd.DataFrame()
+
+    local_path = None
+    if file_path:
+        try:
+            local_candidate = Path(file_path)
+            if local_candidate.exists():
+                local_path = local_candidate
+        except TypeError:
+            local_path = None
+    if local_path is None:
+        default_path = get_default_xlsx_path() if 'get_default_xlsx_path' in globals() else ''
+        if default_path:
+            candidate = Path(default_path)
+            if candidate.exists():
+                local_path = candidate
+    if local_path is None:
+        return pd.DataFrame()
+
+    try:
+        excel = pd.ExcelFile(local_path)
+    except Exception:
+        return pd.DataFrame()
+
+    target = sheet_name.strip().lower()
+    sheet_match = None
+    for sheet in excel.sheet_names:
+        if sheet.strip().lower() == target:
+            sheet_match = sheet
+            break
+    if sheet_match is None:
+        return pd.DataFrame()
+
+    try:
+        df = pd.read_excel(local_path, sheet_name=sheet_match)
+        df = _prepare_time_data_dataframe(df) if sheet_name == 'Time Data' else _clean_headers(df)
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 @st.cache_data(show_spinner=False, ttl=60)
 def _cached_sheet_data(sheet_name: str, cache_token: int, force_refresh: bool):
