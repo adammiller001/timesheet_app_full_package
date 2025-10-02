@@ -500,6 +500,51 @@ def _replace_time_data_in_google(updated_df: pd.DataFrame) -> bool:
 
 
 
+def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
+    """Fill Night Shift and rate columns from Employee List when missing."""
+    if df is None or df.empty:
+        return df
+    try:
+        employee_df = smart_read_data("Employee List", force_refresh=True)
+        if not isinstance(employee_df, pd.DataFrame) or employee_df.empty:
+            return df
+        employee_df = employee_df.copy()
+        employee_df.columns = [str(c).strip() for c in employee_df.columns]
+        info = {}
+        name_col = _find_col(employee_df, ["Employee Name", "Name"]) or "Employee Name"
+        for _, emp_row in employee_df.iterrows():
+            name = str(emp_row.get(name_col, "")).strip()
+            if not name:
+                continue
+            info[name] = {
+                "night": _normalize_night_flag(emp_row.get("Night Shift", "")),
+                "premium": str(emp_row.get("Premium Rate", "") or "").strip(),
+                "subsistence": str(emp_row.get("Subsistence Rate", "") or "").strip(),
+                "travel": str(emp_row.get("Travel Rate", "") or "").strip()
+            }
+        if not info:
+            return df
+        df = df.copy()
+        for idx, row in df.iterrows():
+            name = str(row.get("Name", "")).strip()
+            if not name:
+                continue
+            details = info.get(name)
+            if not details:
+                continue
+            if not _normalize_night_flag(row.get("Night Shift", "")) and details["night"]:
+                df.at[idx, "Night Shift"] = details["night"]
+            if not str(row.get("Premium Rate", "")).strip() and details["premium"]:
+                df.at[idx, "Premium Rate"] = details["premium"]
+            if not str(row.get("Subsistence Rate", "")).strip() and details["subsistence"]:
+                df.at[idx, "Subsistence Rate"] = details["subsistence"]
+            if not str(row.get("Travel Rate", "")).strip() and details["travel"]:
+                df.at[idx, "Travel Rate"] = details["travel"]
+        return df
+    except Exception:
+        return df
+
+
 def save_to_session(new_rows):
     """Save new rows to session, then persist entire dataset to Excel/Google when configured"""
     try:
@@ -509,6 +554,8 @@ def save_to_session(new_rows):
         new_data_df = pd.DataFrame(new_rows)
         if new_data_df.empty:
             return False
+
+        new_data_df = _enrich_with_employee_details(new_data_df)
 
         refreshed_df, source = _load_latest_time_data_for_sync()
         existing_df = st.session_state.get("session_time_data")
@@ -525,6 +572,7 @@ def save_to_session(new_rows):
             combined_source = pd.DataFrame(columns=TIME_DATA_COLUMNS.copy())
 
         updated_df = pd.concat([combined_source, new_data_df], ignore_index=True)
+        updated_df = _enrich_with_employee_details(updated_df)
         updated_df = _prepare_time_data_dataframe(updated_df)
         st.session_state.session_time_data = updated_df
 
@@ -907,7 +955,7 @@ cost_choice = st.selectbox(
 
 # --- Employees (simple multiselect dropdown only) ---
 try:
-    _emp_df = smart_read_data("Employee List")
+    _emp_df = smart_read_data("Employee List", force_refresh=True)
     _emp_df.columns = [str(c).strip() for c in _emp_df.columns]
 
     if "Active" in _emp_df.columns:
