@@ -741,13 +741,26 @@ def _is_truthy(value) -> bool:
         return False
 
 
+
 def _build_job_options_local(df: pd.DataFrame):
-    """Build job options with proper 3-digit area padding"""
+    """Build job options with robust column matching and padding."""
     if df is None or df.empty:
         return []
-    job_c  = _find_col(df, ["Job Number", "JOB #", "Job #"])
-    area_c = _find_col(df, ["Area Number", "AREA #", "Area #", "AREA#"])
-    desc_c = _find_col(df, ["Description", "DESCRIPTION", "PROJECT NAME", "Project Name"])
+    job_c = _find_col(df, [
+        "Job Number", "JOB #", "Job #", "Job", "JobNumber", "Job No", "Job_No"
+    ])
+    area_c = _find_col(df, [
+        "Area Number", "AREA #", "Area #", "AREA#", "Area", "Area No"
+    ])
+    desc_c = _find_col(df, [
+        "Description", "DESCRIPTION", "PROJECT NAME", "Project Name", "Job Description", "Description of Work"
+    ])
+    if not job_c and len(df.columns) > 0:
+        job_c = df.columns[0]
+    if not area_c and len(df.columns) > 1:
+        area_c = df.columns[1]
+    if not desc_c and len(df.columns) > 2:
+        desc_c = df.columns[2]
     if not job_c:
         return []
     out = []
@@ -756,7 +769,8 @@ def _build_job_options_local(df: pd.DataFrame):
         a = _pad_area(row.get(area_c, "")) if area_c else "000"
         d = str(row.get(desc_c, "") or "").strip() if desc_c else ""
         if j or a or d:
-            out.append(f"{j} - {a} - {d}")
+            label = f"{j} - {a} - {d}" if d else f"{j} - {a}"
+            out.append(label.strip(" -"))
     return sorted(pd.Series(out).dropna().astype(str).unique().tolist())
 
 
