@@ -21,6 +21,38 @@ st.set_page_config(
 apply_watermark()
 
 
+EMAIL_COLUMN_CANDIDATES = ["Email", "User Email", "Email Address", "Login Email", "User's Email Address", "E-mail"]
+TYPE_COLUMN_CANDIDATES = ["User Type", "UserType", "Role", "Access Level", "Type"]
+ACTIVE_COLUMN_CANDIDATES = ["Active", "Is Active", "Enabled", "Status"]
+
+
+def _find_column(columns, candidates):
+    normalized = {str(col).strip().lower(): col for col in columns}
+    for candidate in candidates:
+        actual = normalized.get(str(candidate).strip().lower())
+        if actual:
+            return actual
+    return None
+
+
+def _is_truthy(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    try:
+        text_value = str(value).strip().lower()
+    except Exception:
+        return False
+    if not text_value:
+        return False
+    if text_value in {"true", "yes", "y", "1", "active", "enabled"}:
+        return True
+    try:
+        return float(text_value) == 1.0
+    except Exception:
+        return False
+
 def load_users(force_refresh=False):
     """Load users from Google Sheets and report any issues."""
     sheet_id = st.secrets.get("google_sheets_id", "")
@@ -44,6 +76,12 @@ def load_users(force_refresh=False):
             return pd.DataFrame(), f"Google Sheets worksheet '{actual_title}' is empty."
         users_df = users_df.copy()
         users_df.columns = [str(col).strip() for col in users_df.columns]
+        active_col = _find_column(users_df.columns, ACTIVE_COLUMN_CANDIDATES)
+        if active_col and active_col in users_df.columns:
+            users_df = users_df[users_df[active_col].apply(_is_truthy)].copy()
+        users_df = users_df.reset_index(drop=True)
+        if users_df.empty:
+            return pd.DataFrame(), "No active users found in Users worksheet."
         return users_df, None
     except Exception as exc:
         return pd.DataFrame(), f"Google Sheets error: {exc}"
@@ -62,28 +100,25 @@ def authenticate_user(email, force_refresh=False):
         return False, "User", "No users found in worksheet"
 
     # Look for email in various possible column names
-    email_columns = ["Email", "User Email", "Email Address", "Login Email", "User's Email Address"]
-    normalized_columns = {str(col).strip().lower(): col for col in users_df.columns}
-    email_col = None
-
-    for col in email_columns:
-        actual_col = normalized_columns.get(col.strip().lower())
-        if actual_col:
-            email_col = actual_col
-            break
-
+    email_col = _find_column(users_df.columns, EMAIL_COLUMN_CANDIDATES)
     if not email_col:
         return False, "User", f"Email column not found. Available columns: {list(users_df.columns)}"
 
     # Check if email exists
-    user_row = users_df[users_df[email_col].astype(str).str.lower() == email.lower()]
+    user_row = users_df[users_df[email_col].astype(str).str.strip().str.lower() == email.lower()]
     if user_row.empty:
         return False, "User", "Email not found in users list"
 
-    # Check user type (Admin or User)
-    type_candidates = ["User Type", "UserType", "Role", "Access Level", "Type"]
+    # Ensure the user is marked active
+    active_col = _find_column(users_df.columns, ACTIVE_COLUMN_CANDIDATES)
+    if active_col and active_col in users_df.columns:
+        active_value = user_row.iloc[0].get(active_col)
+        if not _is_truthy(active_value):
+            return False, "User", "User is marked inactive."
+
+    normalized_columns = {str(col).strip().lower(): col for col in users_df.columns}
     raw_user_type = "User"  # Default
-    for candidate in type_candidates:
+    for candidate in TYPE_COLUMN_CANDIDATES:
         actual_col = normalized_columns.get(candidate.strip().lower())
         if actual_col and actual_col in users_df.columns:
             raw_user_type = users_df.loc[user_row.index, actual_col].iloc[0]
@@ -119,13 +154,27 @@ if not st.session_state.get("authenticated", False):
     st.title("🔐 PTW - Daily Timesheet Suite")
     st.markdown("### Please sign in with your work email")
 
+    users_df, users_error = load_users(force_refresh=False)
+    active_emails: list[str] = []
+    if users_error:
+        st.warning(users_error)
+    elif not users_df.empty:
+        email_col = _find_column(users_df.columns, EMAIL_COLUMN_CANDIDATES)
+        if email_col and email_col in users_df.columns:
+            active_emails = sorted({str(v).strip() for v in users_df[email_col].dropna() if str(v).strip()}, key=lambda v: v.lower())
+
     with st.form("login_form"):
-        email = st.text_input("Email Address", placeholder="you@ptwenergy.com").strip().lower()
+        if active_emails:
+            select_options = ["Select your email..."] + active_emails
+            selection = st.selectbox("Email Address", select_options, index=0)
+            email = "" if selection == select_options[0] else selection.strip().lower()
+        else:
+            email = st.text_input("Email Address", placeholder="you@ptwenergy.com").strip().lower()
         submitted = st.form_submit_button("Sign In", type="primary")
 
         if submitted:
             if not email:
-                st.error("Please enter your email address")
+                st.error("Please select or enter your email address")
             else:
                 # Force refresh authentication data on every login attempt
                 is_valid, user_type, error = authenticate_user(email, force_refresh=True)
