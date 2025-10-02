@@ -319,6 +319,7 @@ def _load_latest_time_data_for_sync() -> tuple[pd.DataFrame, str]:
             latest = smart_read_data("Time Data", force_refresh=True)
             if isinstance(latest, pd.DataFrame):
                 prepared = _prepare_time_data_dataframe(latest)
+                prepared = _enrich_with_employee_details(prepared)
                 if not prepared.empty or len(prepared.columns) > 0:
                     return prepared, "google"
                 return prepared, "google"
@@ -326,7 +327,9 @@ def _load_latest_time_data_for_sync() -> tuple[pd.DataFrame, str]:
         pass
 
     fallback = _load_time_data_from_excel()
-    return _prepare_time_data_dataframe(fallback), "excel"
+    fallback = _prepare_time_data_dataframe(fallback)
+    fallback = _enrich_with_employee_details(fallback)
+    return fallback, "excel"
 
 def get_time_data_from_session(_date_filter=None):
     """Get time data from session state with optional date filtering"""
@@ -500,6 +503,18 @@ def _replace_time_data_in_google(updated_df: pd.DataFrame) -> bool:
 
 
 
+def _is_blank_value(val) -> bool:
+    if val is None:
+        return True
+    try:
+        import math
+        if isinstance(val, (float, int)) and math.isnan(val):
+            return True
+    except Exception:
+        pass
+    text = str(val).strip()
+    return text == '' or text.lower() in {"nan", "none"}
+
 def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
     """Fill Night Shift and rate columns from Employee List when missing."""
     if df is None or df.empty:
@@ -516,11 +531,15 @@ def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
             name = str(emp_row.get(name_col, "")).strip()
             if not name:
                 continue
+            night_val = _normalize_night_flag(emp_row.get("Night Shift", ""))
+            premium_val = str(emp_row.get("Premium Rate", "") or "").strip()
+            subsistence_val = str(emp_row.get("Subsistence Rate", "") or "").strip()
+            travel_val = str(emp_row.get("Travel Rate", "") or "").strip()
             info[name] = {
-                "night": _normalize_night_flag(emp_row.get("Night Shift", "")),
-                "premium": str(emp_row.get("Premium Rate", "") or "").strip(),
-                "subsistence": str(emp_row.get("Subsistence Rate", "") or "").strip(),
-                "travel": str(emp_row.get("Travel Rate", "") or "").strip()
+                "night": night_val,
+                "premium": '' if _is_blank_value(premium_val) else premium_val,
+                "subsistence": '' if _is_blank_value(subsistence_val) else subsistence_val,
+                "travel": '' if _is_blank_value(travel_val) else travel_val
             }
         if not info:
             return df
@@ -534,11 +553,11 @@ def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
                 continue
             if not _normalize_night_flag(row.get("Night Shift", "")) and details["night"]:
                 df.at[idx, "Night Shift"] = details["night"]
-            if not str(row.get("Premium Rate", "")).strip() and details["premium"]:
+            if _is_blank_value(row.get("Premium Rate", "")) and details["premium"]:
                 df.at[idx, "Premium Rate"] = details["premium"]
-            if not str(row.get("Subsistence Rate", "")).strip() and details["subsistence"]:
+            if _is_blank_value(row.get("Subsistence Rate", "")) and details["subsistence"]:
                 df.at[idx, "Subsistence Rate"] = details["subsistence"]
-            if not str(row.get("Travel Rate", "")).strip() and details["travel"]:
+            if _is_blank_value(row.get("Travel Rate", "")) and details["travel"]:
                 df.at[idx, "Travel Rate"] = details["travel"]
         return df
     except Exception:
@@ -568,6 +587,7 @@ def save_to_session(new_rows):
             else:
                 combined_source = refreshed_df
 
+        combined_source = _enrich_with_employee_details(combined_source)
         if combined_source is None or combined_source.empty:
             combined_source = pd.DataFrame(columns=TIME_DATA_COLUMNS.copy())
 
@@ -761,6 +781,7 @@ if "session_time_data" not in st.session_state:
     # Load initial data with Google Sheets support
     try:
         initial_data = smart_read_data("Time Data")
+        initial_data = _enrich_with_employee_details(initial_data)
     except Exception as e:
         st.warning(f"Failed to load Time Data from configured sources: {e}")
         initial_data = pd.DataFrame()
@@ -989,7 +1010,7 @@ def _normalize_night_flag(raw_value) -> str:
     if raw_value is None:
         return ""
     value = str(raw_value).strip()
-    if not value:
+    if not value or value.lower() in {"nan", "none"}:
         return ""
     if value.upper() in {"Y", "YES", "TRUE", "1"}:
         return "Y"
