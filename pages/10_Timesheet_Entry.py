@@ -1551,9 +1551,9 @@ if user_type.upper() == "ADMIN":
                                         premium_rate = clean_value(row.get('Premium Rate', ''))
                                         subsistence_rate = clean_value(row.get('Subsistence Rate', '')) or clean_value(emp_info.get('subsistence', ''))
                                         travel_rate = clean_value(row.get('Travel Rate', ''))
-                                        night_shift = _normalize_night_flag(row.get('Night Shift', ''))
+                                        night_shift = _normalize_night_flag(emp_info.get('night_shift', ''))
                                         if not night_shift:
-                                            night_shift = _normalize_night_flag(emp_info.get('night_shift', ''))
+                                            night_shift = _normalize_night_flag(row.get('Night Shift', ''))
 
                                         time_record_type = clean_value(emp_info.get('time_record_type', ''))
 
