@@ -90,7 +90,7 @@ TIME_DATA_COLUMNS = [
     "Job Number", "Job Area", "Date", "Name", "Trade Class",
     "Employee Number", "RT Hours", "OT Hours", "Description of work",
     "Comments", "Night Shift", "Premium Rate", "Subsistence Rate",
-    "Travel Rate", "Indirect", "Cost Code"
+    "Travel Rate", "Indirect", "Cost Code", "Entered By"
 ]
 
 # File modification time monitoring for automatic reloads
@@ -418,6 +418,11 @@ def _sync_time_data_to_google(new_data_df: pd.DataFrame) -> bool:
 
         def _norm(col_name: str) -> str:
             return ''.join(ch for ch in str(col_name).strip().lower() if ch.isalnum())
+
+        header_norms = {_norm(header) for header in headers}
+        df_norms = {_norm(col) for col in df_to_sync.columns}
+        if not df_norms.issubset(header_norms):
+            return False
 
         df_lookup = {_norm(col): col for col in df_to_sync.columns}
         rows_to_append = []
@@ -1138,6 +1143,7 @@ if st.button("Add line", type="primary", disabled=add_disabled):
                     "Travel Rate": emp_data['travel'],
                     "Indirect": emp_data['indirect'],
                     "Cost Code": cost_code,
+                    "Entered By": st.session_state.get('user_email', ''),
                 }
                 new_rows.append(new_row)
             
