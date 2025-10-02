@@ -43,6 +43,19 @@ if not st.session_state.get("authenticated", False):
 
 user = st.session_state.get("user_email")
 user_type = st.session_state.get("user_type", "User")
+
+sheet_id_value = str(st.secrets.get("google_sheets_id", "")).strip() if 'google_sheets_id' in st.secrets else ""
+service_account_email = ""
+try:
+    gs_section = dict(st.secrets.get("google_sheets", {}))
+    service_account_email = str(gs_section.get("client_email", "")).strip()
+except Exception:
+    service_account_email = ""
+if not st.session_state.get("_sheets_debug_shown", False):
+    debug_id = f"{sheet_id_value[:6]}..." if sheet_id_value and len(sheet_id_value) > 10 else sheet_id_value
+    debug_email = service_account_email if service_account_email else "missing"
+    st.caption(f"Sheets config -> ID set: {bool(sheet_id_value)}, ID: {debug_id or 'n/a'}, service account: {debug_email}, gspread import: {HAVE_GOOGLE_SHEETS}")
+    st.session_state['_sheets_debug_shown'] = True
 GOOGLE_CONFIGURED = (
     "google_sheets_id" in st.secrets
     and str(st.secrets["google_sheets_id"]).strip()
@@ -232,6 +245,7 @@ def _fetch_sheet_dataframe(primary_sheet: str, alt_names: Optional[tuple[str, ..
         df = df.copy()
         df.columns = [str(c).strip() for c in df.columns]
         return df
+    st.info(f"DEBUG: {primary_sheet} returned 0 rows (sheet_id set: {bool(sheet_id)}, gspread available: {HAVE_GOOGLE_SHEETS})")
     return pd.DataFrame()
 
 def get_available_worksheets(_: object = None):
