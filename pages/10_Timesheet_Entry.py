@@ -60,6 +60,18 @@ if "auto_fresh_data" not in st.session_state:
 
 XLSX = None
 
+# Optional local Excel fallback path (set secrets.local_workbook_path to enable)
+try:
+    _local_workbook = str(st.secrets.get('local_workbook_path', '')).strip() if 'local_workbook_path' in st.secrets else ''
+    if _local_workbook:
+        candidate = Path(_local_workbook)
+        if not candidate.is_absolute():
+            candidate = Path.cwd() / candidate
+        if candidate.exists():
+            XLSX = candidate
+except Exception:
+    XLSX = None
+
 TIME_DATA_COLUMNS = [
     "Job Number", "Job Area", "Date", "Name", "Trade Class",
     "Employee Number", "RT Hours", "OT Hours", "Description of work",
@@ -85,16 +97,37 @@ def safe_read_excel_force_fresh(file_path, sheet_name):
     return safe_read_excel(file_path, sheet_name, force_refresh=True)
 
 def safe_read_excel(file_path, sheet_name, force_refresh=False):
-    if not HAVE_GOOGLE_SHEETS or 'google_sheets_id' not in st.secrets or not st.secrets['google_sheets_id']:
-        return pd.DataFrame()
+    """Read worksheet data either from Google Sheets or a local Excel workbook."""
+    sheet_id = str(st.secrets.get('google_sheets_id', '')).strip() if 'google_sheets_id' in st.secrets else ''
+    if HAVE_GOOGLE_SHEETS and sheet_id:
+        try:
+            df = read_timesheet_data(sheet_name, force_refresh=force_refresh)
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                df = df.copy()
+                df.columns = [str(c).strip() for c in df.columns]
+                return df
+        except Exception:
+            pass
+
+    # Fallback to a local workbook if one was configured
+    candidate_path = None
     try:
-        df = read_timesheet_data(sheet_name, force_refresh=force_refresh)
-        if isinstance(df, pd.DataFrame):
-            df = df.copy()
-            df.columns = [str(c).strip() for c in df.columns]
-            return df
+        if file_path:
+            candidate_path = Path(file_path)
+        elif XLSX:
+            candidate_path = Path(XLSX)
     except Exception:
-        pass
+        candidate_path = None
+
+    if candidate_path and candidate_path.exists():
+        try:
+            df = pd.read_excel(candidate_path, sheet_name=sheet_name)
+            if isinstance(df, pd.DataFrame):
+                df = df.copy()
+                df.columns = [str(c).strip() for c in df.columns]
+                return df
+        except Exception:
+            pass
     return pd.DataFrame()
 
 @st.cache_data(show_spinner=False, ttl=60)
@@ -173,6 +206,33 @@ def smart_read_data(sheet_name, force_refresh=False):
     except Exception as e:
         st.error(f"Failed to load {sheet_name}: {e}")
         return pd.DataFrame()
+
+
+def _fetch_sheet_dataframe(primary_sheet: str, alt_names: Optional[tuple[str, ...]] = None, *, force_refresh: bool = True) -> pd.DataFrame:
+    """Fetch a worksheet as a DataFrame with direct Google Sheets access and cached fallback."""
+    candidates = [primary_sheet]
+    if alt_names:
+        candidates.extend(list(alt_names))
+    sheet_id = str(st.secrets.get('google_sheets_id', '')).strip() if 'google_sheets_id' in st.secrets else ''
+    if HAVE_GOOGLE_SHEETS and sheet_id:
+        try:
+            manager = get_sheets_manager()  # type: ignore[name-defined]
+            worksheet, actual_title = manager.find_worksheet(candidates, sheet_id)
+            target_title = actual_title or primary_sheet
+            if worksheet or actual_title:
+                df = manager.read_worksheet(target_title, sheet_id, force_refresh=force_refresh)
+                if isinstance(df, pd.DataFrame) and not df.empty:
+                    df = df.copy()
+                    df.columns = [str(c).strip() for c in df.columns]
+                    return df
+        except Exception as exc:
+            st.warning(f"Google Sheets read error for {primary_sheet}: {exc}")
+    df = smart_read_data(primary_sheet, force_refresh=force_refresh)
+    if isinstance(df, pd.DataFrame) and not df.empty:
+        df = df.copy()
+        df.columns = [str(c).strip() for c in df.columns]
+        return df
+    return pd.DataFrame()
 
 def get_available_worksheets(_: object = None):
     """Get list of available worksheets in the configured Google Sheet"""
@@ -797,13 +857,15 @@ def _parse_hours_input(raw_value: str) -> Optional[float]:
 
 
 
-def _load_active_job_options() -> list[str]:
-    """Load active job options from Google Sheets (columns C, D, F, G)."""
+def _load_active_job_options() -> tuple[list[str], int, int]:
+    """Load job dropdown options and report total/active row counts."""
+    total_rows = 0
+    active_rows = 0
     try:
-        df = smart_read_data("Job Numbers", force_refresh=True)
-        if isinstance(df, pd.DataFrame) and not df.empty:
-            jobs_df = df.copy()
-            jobs_df.columns = [str(c).strip() for c in jobs_df.columns]
+        jobs_df = _fetch_sheet_dataframe("Job Numbers", ("Jobs",), force_refresh=True)
+        if isinstance(jobs_df, pd.DataFrame) and not jobs_df.empty:
+            jobs_df = jobs_df.copy()
+            total_rows = len(jobs_df)
             cols = list(jobs_df.columns)
             job_col = cols[2] if len(cols) > 2 else cols[0]
             area_col = cols[3] if len(cols) > 3 else cols[min(1, len(cols)-1)]
@@ -811,9 +873,9 @@ def _load_active_job_options() -> list[str]:
             active_col = cols[6] if len(cols) > 6 else None
             if active_col and active_col in jobs_df.columns:
                 mask = jobs_df[active_col].apply(_is_truthy)
-                filtered = jobs_df[mask]
-                if not filtered.empty:
-                    jobs_df = filtered
+                active_rows = int(mask.sum())
+                if active_rows:
+                    jobs_df = jobs_df[mask]
             options = []
             for _, row in jobs_df.iterrows():
                 job = str(row.get(job_col, "") or "").strip()
@@ -823,14 +885,18 @@ def _load_active_job_options() -> list[str]:
                     label = f"{job} - {area} - {desc}" if desc else f"{job} - {area}"
                     options.append(label.strip(' -'))
             if options:
-                return sorted(pd.Series(options).dropna().astype(str).unique().tolist())
+                options = sorted(pd.Series(options).dropna().astype(str).unique().tolist())
+                return options, total_rows, active_rows
     except Exception as exc:
         st.warning(f"Could not load Job Numbers sheet: {exc}")
-    return []
+    return [], total_rows, active_rows
 
-job_options = _load_active_job_options()
+job_options, job_total_rows, job_active_rows = _load_active_job_options()
 if not job_options:
-    st.warning("No active jobs found. Check the Job Numbers sheet and ensure new rows are marked active (column G).")
+    if job_total_rows == 0:
+        st.warning("Job Numbers sheet returned 0 rows. Confirm the worksheet has data and the service account can access it.")
+    else:
+        st.warning(f"No active jobs found. Check the Job Numbers sheet and ensure new rows are marked active (column G). Rows fetched: {job_total_rows}, active flagged: {job_active_rows}.")
 
 job_choice = st.selectbox(
     "Job Number - Area Number - Description",
@@ -839,6 +905,7 @@ job_choice = st.selectbox(
     placeholder="Select a job...",
     key=f"job_choice_{st.session_state.form_counter}"
 )
+st.caption(f"Job rows fetched: {job_total_rows}, active flagged: {job_active_rows}")
 
 
 
@@ -848,12 +915,15 @@ job_choice = st.selectbox(
 
 
 
-def _load_active_cost_codes() -> list[str]:
-    """Return active cost code options from Google Sheets (columns A, B, C)."""
+def _load_active_cost_codes() -> tuple[list[str], int, int]:
+    """Return cost code options and counts of total/active rows."""
+    total_rows = 0
+    active_rows = 0
     try:
-        df = smart_read_data("Cost Codes", force_refresh=True)
-        if isinstance(df, pd.DataFrame) and not df.empty:
-            cost_df = df.copy()
+        cost_df = _fetch_sheet_dataframe("Cost Codes", ("CostCodes",), force_refresh=True)
+        if isinstance(cost_df, pd.DataFrame) and not cost_df.empty:
+            cost_df = cost_df.copy()
+            total_rows = len(cost_df)
             cost_df.columns = [str(c).strip() for c in cost_df.columns]
             cols = list(cost_df.columns)
             code_col = cols[0]
@@ -861,9 +931,9 @@ def _load_active_cost_codes() -> list[str]:
             active_col = cols[2] if len(cols) > 2 else None
             if active_col and active_col in cost_df.columns:
                 mask = cost_df[active_col].apply(_is_truthy)
-                filtered = cost_df[mask]
-                if not filtered.empty:
-                    cost_df = filtered
+                active_rows = int(mask.sum())
+                if active_rows:
+                    cost_df = cost_df[mask]
             descriptions = []
             for _, row in cost_df.iterrows():
                 code = str(row.get(code_col, "") or "").strip()
@@ -871,14 +941,18 @@ def _load_active_cost_codes() -> list[str]:
                 if code:
                     descriptions.append(f"{code} - {desc}" if desc else code)
             if descriptions:
-                return sorted(pd.Series(descriptions).dropna().astype(str).unique().tolist())
+                descriptions = sorted(pd.Series(descriptions).dropna().astype(str).unique().tolist())
+                return descriptions, total_rows, active_rows
     except Exception as exc:
         st.warning(f"Could not load Cost Codes sheet: {exc}")
-    return []
+    return [], total_rows, active_rows
 
-cost_options = _load_active_cost_codes()
+cost_options, cost_total_rows, cost_active_rows = _load_active_cost_codes()
 if not cost_options:
-    st.warning("No active cost codes found. Check the Cost Codes sheet and ensure new rows are marked active (column C).")
+    if cost_total_rows == 0:
+        st.warning("Cost Codes sheet returned 0 rows. Confirm the worksheet has data and the service account can access it.")
+    else:
+        st.warning(f"No active cost codes found. Check the Cost Codes sheet and ensure new rows are marked active (column C). Rows fetched: {cost_total_rows}, active flagged: {cost_active_rows}.")
 
 cost_choice = st.selectbox(
     "Cost Code - Description",
@@ -887,22 +961,26 @@ cost_choice = st.selectbox(
     placeholder="Select a cost code...",
     key=f"cost_choice_{st.session_state.form_counter}"
 )
+st.caption(f"Cost code rows fetched: {cost_total_rows}, active flagged: {cost_active_rows}")
 
 
 # --- Employees (simple multiselect dropdown only) ---
+employee_total_rows = 0
+employee_active_rows = 0
 try:
-    _emp_df = smart_read_data("Employee List", force_refresh=True)
-    if isinstance(_emp_df, pd.DataFrame) and not _emp_df.empty:
-        _emp_df = _emp_df.copy()
+    _emp_df_raw = _fetch_sheet_dataframe("Employee List", ("Employees",), force_refresh=True)
+    if isinstance(_emp_df_raw, pd.DataFrame) and not _emp_df_raw.empty:
+        _emp_df = _emp_df_raw.copy()
+        employee_total_rows = len(_emp_df)
         _emp_df.columns = [str(c).strip() for c in _emp_df.columns]
         cols = list(_emp_df.columns)
         name_col = cols[2] if len(cols) > 2 else cols[0]
         active_col = cols[10] if len(cols) > 10 else None
         if active_col and active_col in _emp_df.columns:
             mask = _emp_df[active_col].apply(_is_truthy)
-            filtered = _emp_df[mask]
-            if not filtered.empty:
-                _emp_df = filtered
+            employee_active_rows = int(mask.sum())
+            if employee_active_rows:
+                _emp_df = _emp_df[mask]
         EMP_NAME_COL = name_col
         _employee_options = sorted(_emp_df[EMP_NAME_COL].dropna().astype(str).unique().tolist())
     else:
@@ -911,6 +989,14 @@ except Exception:
     _emp_df = pd.DataFrame()
     _employee_options = []
     EMP_NAME_COL = "Employee Name"
+    employee_total_rows = 0
+    employee_active_rows = 0
+
+if not _employee_options:
+    if employee_total_rows == 0:
+        st.warning("Employee List sheet returned 0 rows. Confirm the worksheet has data and the service account can access it.")
+    else:
+        st.warning(f"No active employees available. Rows fetched: {employee_total_rows}, active flagged: {employee_active_rows}.")
 
 selected_employees = st.multiselect(
     "Employees",
@@ -919,6 +1005,7 @@ selected_employees = st.multiselect(
     placeholder="Select one or more employees...",
     key=f"selected_employees_{st.session_state.form_counter}"
 )
+st.caption(f"Employee rows fetched: {employee_total_rows}, active flagged: {employee_active_rows}")
 
 
 
