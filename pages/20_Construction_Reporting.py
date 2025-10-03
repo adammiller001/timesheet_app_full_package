@@ -240,8 +240,7 @@ else:
         working_df_options.columns = [str(col).strip() for col in working_df_options.columns]
         if working_df_options.columns.tolist():
             tag_column = working_df_options.columns[0]
-            col_l = working_df_options.columns[11] if len(working_df_options.columns) > 11 else None
-            col_m = working_df_options.columns[12] if len(working_df_options.columns) > 12 else None
+            status_cols = working_df_options.columns[12:15]
             filtered_tags = []
             seen_tags = set()
             for _, cable_row in working_df_options.iterrows():
@@ -249,9 +248,8 @@ else:
                 if not tag_value:
                     continue
                 if only_incomplete_flag:
-                    val_l = str(cable_row.get(col_l, "")).strip() if col_l else ""
-                    val_m = str(cable_row.get(col_m, "")).strip() if col_m else ""
-                    if val_l and val_m:
+                    completeness = [str(cable_row.get(col, "")).strip() for col in status_cols]
+                    if status_cols and all(completeness):
                         continue
                 if tag_value not in seen_tags:
                     seen_tags.add(tag_value)
@@ -295,9 +293,9 @@ else:
                         st.warning("Unable to locate details for the selected cable tag.")
                     else:
                         row = matched_rows.iloc[0]
-                        detail_columns = working_df.columns[1:11]
+                        detail_columns = working_df.columns[1:12]
                         if not list(detail_columns):
-                            st.info("No additional columns (B-K) are available for this cable sheet.")
+                            st.info("No additional columns (B-L) are available for this cable sheet.")
                         else:
                             detail_records = []
                             for col in detail_columns:
@@ -308,7 +306,7 @@ else:
                             st.subheader("Cable Details")
                             st.table(details_df)
 
-                            mirror_columns = working_df.columns[11:14]
+                            mirror_columns = working_df.columns[12:15]
                             mirror_data = []
                             for col in mirror_columns:
                                 raw_value = row.get(col, "")
