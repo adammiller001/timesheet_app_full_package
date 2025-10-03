@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 from typing import List, Tuple
 from urllib.parse import quote
 
@@ -158,4 +159,33 @@ else:
         else:
             st.info(f"No {primary_label} values found in this sheet yet.")
     else:
-        st.info(f"'{detail_choice}' details coming soon.")
+        normalized_category = category.strip().lower()
+        if normalized_category == "cable":
+            if sheet_df.empty:
+                st.warning("No cable data is available to display.")
+            else:
+                working_df = sheet_df.copy()
+                working_df.columns = [str(col).strip() for col in working_df.columns]
+                if not list(working_df.columns):
+                    st.warning("Cable sheet is missing header information.")
+                else:
+                    tag_column = working_df.columns[0]
+                    matched_rows = working_df[working_df[tag_column].astype(str).str.strip() == detail_choice.strip()]
+                    if matched_rows.empty:
+                        st.warning("Unable to locate details for the selected cable tag.")
+                    else:
+                        row = matched_rows.iloc[0]
+                        detail_columns = working_df.columns[1:11]
+                        if not list(detail_columns):
+                            st.info("No additional columns (B-K) are available for this cable sheet.")
+                        else:
+                            detail_records = []
+                            for col in detail_columns:
+                                raw_value = row.get(col, "")
+                                value = "" if pd.isna(raw_value) else str(raw_value).strip()
+                                detail_records.append({"Field": col, "Value": value})
+                            details_df = pd.DataFrame(detail_records)
+                            st.subheader("Cable Details")
+                            st.table(details_df)
+        else:
+            st.info(f"'{detail_choice}' details coming soon.")
