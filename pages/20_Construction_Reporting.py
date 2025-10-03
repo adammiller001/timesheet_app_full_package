@@ -234,6 +234,38 @@ else:
             key=toggle_key,
             help="Filter to cables missing Date Pulled or Checked By."
         )
+    elif normalized_category == "glands":
+        toggle_key = "glands_only_incomplete_toggle"
+        only_incomplete_flag = st.checkbox(
+            "Only Show Incomplete Glands",
+            value=st.session_state.get(toggle_key, False),
+            key=toggle_key,
+            help="Filter to glands missing status fields."
+        )
+
+    if normalized_category in ("cable", "glands") and not sheet_df.empty:
+        working_df_options = sheet_df.copy()
+        working_df_options.columns = [str(col).strip() for col in working_df_options.columns]
+        if working_df_options.columns.tolist():
+            tag_column = working_df_options.columns[0]
+            if normalized_category == "cable":
+                status_cols = working_df_options.columns[12:15]
+            else:
+                status_cols = working_df_options.columns[5:10]
+            filtered_tags = []
+            seen_tags = set()
+            for _, entry_row in working_df_options.iterrows():
+                tag_value = str(entry_row.get(tag_column, "")).strip()
+                if not tag_value:
+                    continue
+                if only_incomplete_flag:
+                    completeness = [str(entry_row.get(col, "")).strip() for col in status_cols]
+                    if status_cols and all(completeness):
+                        continue
+                if tag_value not in seen_tags:
+                    seen_tags.add(tag_value)
+                    filtered_tags.append(tag_value)
+            column_values = filtered_tags
 
     if normalized_category == "cable" and not sheet_df.empty:
         working_df_options = sheet_df.copy()
