@@ -131,26 +131,28 @@ else:
     sheet_df = read_timesheet_data(category, force_refresh=True)
     column_label, column_values = _get_column_a_details(category)
 
-    if not column_label and not column_values:
-        if sheet_df.empty:
-            st.warning("No data found for this category in Google Sheets.")
-        else:
-            st.info("Column A does not contain any values yet for this category.")
-    else:
-        primary_label = column_label or "Selection"
-        placeholder = f"Select {primary_label}..."
-        detail_options = [placeholder] + column_values
-        label_slug = ''.join(ch.lower() if ch.isalnum() else '_' for ch in primary_label).strip('_') or 'field'
-        detail_key = f"construction_reporting_{category.lower().replace(' ', '_')}_{label_slug}_detail"
-        detail_choice = st.selectbox(
-            primary_label,
-            detail_options,
-            index=0,
-            key=detail_key,
-            help=f"Choose a {primary_label} to explore further.",
-        )
+    primary_label = (column_label or "Selection").strip() or "Selection"
+    placeholder = f"Select {primary_label}..."
 
-        if detail_choice == placeholder:
+    if not column_label and not column_values and sheet_df.empty:
+        st.warning("No data found for this category in Google Sheets.")
+
+    detail_options = [placeholder] + column_values if column_values else [placeholder]
+
+    label_slug = ''.join(ch.lower() if ch.isalnum() else '_' for ch in primary_label).strip('_') or 'field'
+    detail_key = f"construction_reporting_{category.lower().replace(' ', '_')}_{label_slug}_detail"
+    detail_choice = st.selectbox(
+        primary_label,
+        detail_options,
+        index=0,
+        key=detail_key,
+        help=f"Choose a {primary_label} to explore further.",
+    )
+
+    if detail_choice == placeholder:
+        if column_values:
             st.info(f"Choose a {primary_label} to continue.")
         else:
-            st.info(f"'{detail_choice}' details coming soon.")
+            st.info(f"No {primary_label} values found in this sheet yet.")
+    else:
+        st.info(f"'{detail_choice}' details coming soon.")
