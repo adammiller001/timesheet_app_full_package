@@ -190,8 +190,7 @@ def _update_cable_row(sheet_name: str, tag_value: str, updates: dict[str, object
     if worksheet is not None and hasattr(worksheet, 'update'):
         try:
             for col_idx, str_value in payload:
-                cell_ref = f"{_column_letter(col_idx)}{row_number}"
-                worksheet.update(cell_ref, [[str_value]], value_input_option='USER_ENTERED')
+                worksheet.update_cell(row_number, col_idx, str_value)
             if hasattr(manager, '_data_cache'):
                 manager._data_cache.pop(actual_title, None)
             return True
