@@ -1556,9 +1556,15 @@ if user_type.upper() == "ADMIN":
                                     if job_key not in job_groups:
                                         job_groups[job_key] = set()
 
-                                    comment = str(row.get('Comments', '')).strip()
-                                    if comment and comment.lower() not in ['nan', 'none', '']:
-                                        job_groups[job_key].add(comment)
+                                    raw_comment = str(row.get('Comments', '') or '').strip()
+                                    if raw_comment:
+                                        lower_comment = raw_comment.lower()
+                                        if lower_comment not in ('nan', 'none'):
+                                            split_comments = [part.strip() for part in raw_comment.split(',') if part.strip()]
+                                            for split_comment in split_comments:
+                                                normalized_comment = split_comment.upper()
+                                                if normalized_comment and normalized_comment not in ('NAN', 'NONE'):
+                                                    job_groups[job_key].add(normalized_comment)
 
                                 # Write job summaries (only if there are comments)
                                 for job_key, comments in job_groups.items():
