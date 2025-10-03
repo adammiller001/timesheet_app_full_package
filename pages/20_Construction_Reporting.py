@@ -25,6 +25,9 @@ if user_type.upper() != "ADMIN":
 user = st.session_state.get("user_email")
 st.sidebar.info(f"Signed in as: {user}")
 
+if st.sidebar.button("Refresh All Dropdowns", use_container_width=True):
+    st.session_state['force_fresh_data'] = True
+
 st.title(st.session_state.get("page_header", "Page"))
 
 CATEGORY_OPTIONS = [
