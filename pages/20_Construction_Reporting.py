@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import date as date_cls
 from typing import List, Tuple
 from urllib.parse import quote
 
@@ -246,7 +247,13 @@ else:
                             mirror_data = []
                             for col in mirror_columns:
                                 raw_value = row.get(col, "")
-                                value = "" if pd.isna(raw_value) else str(raw_value).strip()
+                                if pd.isna(raw_value):
+                                    value = ""
+                                elif col and 'date' in col.lower():
+                                    parsed = pd.to_datetime(raw_value, errors='coerce')
+                                    value = parsed.strftime('%Y-%m-%d') if pd.notna(parsed) else str(raw_value).strip()
+                                else:
+                                    value = str(raw_value).strip()
                                 mirror_data.append((col, value))
 
                             st.write("")
@@ -259,15 +266,26 @@ else:
                                 if label.lower() == 'date pulled':
                                     default_date = None
                                     if current_value:
-                                        try:
-                                            default_date = pd.to_datetime(current_value).date()
-                                        except Exception:
-                                            default_date = None
-                                    updated_values[col] = st.date_input(
-                                        label,
-                                        value=default_date,
-                                        key=input_key
-                                    )
+                                        parsed_date = pd.to_datetime(current_value, errors='coerce')
+                                        if pd.notna(parsed_date):
+                                            default_date = parsed_date.date()
+                                    date_col, clear_col = st.columns([3, 1])
+                                    with date_col:
+                                        date_value = st.date_input(
+                                            label,
+                                            value=default_date or date_cls.today(),
+                                            key=input_key,
+                                            format="YYYY-MM-DD"
+                                        )
+                                    clear_key = f"{input_key}_clear"
+                                    with clear_col:
+                                        clear_selected = st.checkbox(
+                                            "Clear",
+                                            value=default_date is None,
+                                            key=clear_key,
+                                            help="Tick to leave the date blank."
+                                        )
+                                    updated_values[col] = "" if clear_selected else date_value
                                 else:
                                     updated_values[col] = st.text_input(
                                         label,
@@ -280,9 +298,9 @@ else:
                                     updates_to_apply = {}
                                     for col, value in updated_values.items():
                                         if isinstance(value, pd.Timestamp):
-                                            updates_to_apply[col] = value.date()
-                                        elif hasattr(value, 'strftime'):
-                                            updates_to_apply[col] = value
+                                            updates_to_apply[col] = value.strftime('%Y-%m-%d')
+                                        elif hasattr(value, 'strftime') and not isinstance(value, str):
+                                            updates_to_apply[col] = value.strftime('%Y-%m-%d')
                                         else:
                                             updates_to_apply[col] = value
 
@@ -291,6 +309,7 @@ else:
                                     else:
                                         if _update_cable_row(category, detail_choice.strip(), updates_to_apply):
                                             st.success("Cable details updated successfully.")
+                                            st.experimental_rerun()
                                         else:
                                             st.error("Failed to update cable details.")
                                 except Exception as exc:
