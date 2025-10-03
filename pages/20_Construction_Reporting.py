@@ -249,9 +249,9 @@ else:
         if working_df_options.columns.tolist():
             tag_column = working_df_options.columns[0]
             if normalized_category == "cable":
-                status_cols = working_df_options.columns[12:15]
+                status_cols = list(working_df_options.columns[12:15])
             else:
-                status_cols = working_df_options.columns[5:10]
+                status_cols = list(working_df_options.columns[5:10])
             filtered_tags = []
             seen_tags = set()
             for _, entry_row in working_df_options.iterrows():
@@ -272,7 +272,7 @@ else:
         working_df_options.columns = [str(col).strip() for col in working_df_options.columns]
         if working_df_options.columns.tolist():
             tag_column = working_df_options.columns[0]
-            status_cols = working_df_options.columns[12:15]
+            status_cols = list(working_df_options.columns[12:15])
             filtered_tags = []
             seen_tags = set()
             for _, cable_row in working_df_options.iterrows():
