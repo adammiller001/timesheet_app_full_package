@@ -24,21 +24,27 @@ st.sidebar.info(f"Signed in as: {user}")
 st.title(st.session_state.get("page_header", "Page"))
 
 CATEGORY_OPTIONS = [
-    "Select a category...",
-    "Job Summary",
-    "Employee Summary",
-    "Daily Detail",
+    "Cable",
+    "Glands",
+    "Terminations",
+    "Tray",
+    "Equipment",
+    "Junction Boxes",
+    "Instruments",
+    "Tubing",
 ]
+
+select_options = ["Select a category..."] + CATEGORY_OPTIONS
 
 category = st.selectbox(
     "Category",
-    CATEGORY_OPTIONS,
+    select_options,
     index=0,
-    key="construction_reporting_category",
+    key="construction_reporting_category_v2",
     help="Choose the type of construction report to view.",
 )
 
-if category == CATEGORY_OPTIONS[0]:
+if category == select_options[0]:
     st.info("Select a category to start exploring construction reporting views.")
 else:
     st.info(f"'{category}' view coming soon.")
