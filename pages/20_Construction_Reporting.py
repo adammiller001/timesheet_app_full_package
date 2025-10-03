@@ -334,23 +334,13 @@ else:
                                         parsed_date = pd.to_datetime(current_value, errors='coerce')
                                         if pd.notna(parsed_date):
                                             default_date = parsed_date.date()
-                                    date_col, clear_col = st.columns([3, 1])
-                                    with date_col:
-                                        date_value = st.date_input(
-                                            label,
-                                            value=default_date or date_cls.today(),
-                                            key=input_key,
-                                            format="YYYY-MM-DD"
-                                        )
-                                    clear_key = f"{input_key}_clear"
-                                    with clear_col:
-                                        clear_selected = st.checkbox(
-                                            "Clear",
-                                            value=default_date is None,
-                                            key=clear_key,
-                                            help="Tick to leave the date blank."
-                                        )
-                                    updated_values[col] = "" if clear_selected else date_value
+                                    date_value = st.date_input(
+                                        label,
+                                        value=default_date or date_cls.today(),
+                                        key=input_key,
+                                        format="YYYY-MM-DD"
+                                    )
+                                    updated_values[col] = date_value
                                 else:
                                     updated_values[col] = st.text_input(
                                         label,
