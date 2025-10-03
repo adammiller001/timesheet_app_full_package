@@ -187,5 +187,28 @@ else:
                             details_df = pd.DataFrame(detail_records)
                             st.subheader("Cable Details")
                             st.table(details_df)
+
+                            mirror_columns = working_df.columns[11:14]
+                            mirror_data = []
+                            for col in mirror_columns:
+                                raw_value = row.get(col, "")
+                                value = "" if pd.isna(raw_value) else str(raw_value).strip()
+                                mirror_data.append((col, value))
+
+                            st.write("")
+                            st.subheader("Update Cable Status")
+                            updated_values = {}
+                            tag_slug = ''.join(ch.lower() if ch.isalnum() else '_' for ch in detail_choice).strip('_') or 'tag'
+                            for col, current_value in mirror_data:
+                                label = col if col else "Field"
+                                input_key = f"cable_update_{tag_slug}_{''.join(ch.lower() if ch.isalnum() else '_' for ch in (col or 'field')).strip('_')}"
+                                updated_values[col] = st.text_input(
+                                    label,
+                                    value=current_value,
+                                    key=input_key
+                                )
+
+                            if st.button("Submit", type="primary"):
+                                st.info("Submit functionality not yet implemented.")
         else:
             st.info(f"'{detail_choice}' details coming soon.")
