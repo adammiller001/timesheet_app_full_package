@@ -23,4 +23,22 @@ st.sidebar.info(f"Signed in as: {user}")
 
 st.title(st.session_state.get("page_header", "Page"))
 
-st.info("Placeholder page. We'll wire this up next.")
+CATEGORY_OPTIONS = [
+    "Select a category...",
+    "Job Summary",
+    "Employee Summary",
+    "Daily Detail",
+]
+
+category = st.selectbox(
+    "Category",
+    CATEGORY_OPTIONS,
+    index=0,
+    key="construction_reporting_category",
+    help="Choose the type of construction report to view.",
+)
+
+if category == CATEGORY_OPTIONS[0]:
+    st.info("Select a category to start exploring construction reporting views.")
+else:
+    st.info(f"'{category}' view coming soon.")
