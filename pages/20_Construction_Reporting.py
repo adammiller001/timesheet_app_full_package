@@ -394,5 +394,70 @@ else:
                             details_df = pd.DataFrame(detail_records)
                             st.subheader("Gland Details")
                             st.table(details_df)
+                            status_columns = working_df.columns[5:10]
+                            if not list(status_columns):
+                                st.info("No status columns (F-J) are available for this glands sheet.")
+                            else:
+                                status_data = []
+                                for col in status_columns:
+                                    raw_value = row.get(col, "")
+                                    if pd.isna(raw_value):
+                                        value = ""
+                                    elif col and 'date' in col.lower():
+                                        parsed = pd.to_datetime(raw_value, errors='coerce')
+                                        value = parsed.strftime('%Y-%m-%d') if pd.notna(parsed) else str(raw_value).strip()
+                                    else:
+                                        value = str(raw_value).strip()
+                                    status_data.append((col, value))
+
+                                st.write("")
+                                st.subheader("Update Gland Status")
+                                updated_values = {}
+                                tag_slug = ''.join(ch.lower() if ch.isalnum() else '_' for ch in detail_choice).strip('_') or 'tag'
+                                for col, current_value in status_data:
+                                    label = col if col else "Field"
+                                    input_key = f"gland_update_{tag_slug}_{''.join(ch.lower() if ch.isalnum() else '_' for ch in (col or 'field')).strip('_')}"
+                                    if label and 'date' in label.lower():
+                                        default_date = None
+                                        if current_value:
+                                            parsed_date = pd.to_datetime(current_value, errors='coerce')
+                                            if pd.notna(parsed_date):
+                                                default_date = parsed_date.date()
+                                        date_value = st.date_input(
+                                            label,
+                                            value=default_date or date_cls.today(),
+                                            key=input_key,
+                                            format="YYYY-MM-DD"
+                                        )
+                                        updated_values[col] = date_value
+                                    else:
+                                        updated_values[col] = st.text_input(
+                                            label,
+                                            value=current_value,
+                                            key=input_key
+                                        )
+
+                                if st.button("Submit Gland Status", type="primary"):
+                                    try:
+                                        updates_to_apply = {}
+                                        for col, value in updated_values.items():
+                                            if isinstance(value, pd.Timestamp):
+                                                updates_to_apply[col] = value.strftime('%Y-%m-%d')
+                                            elif hasattr(value, 'strftime') and not isinstance(value, str):
+                                                updates_to_apply[col] = value.strftime('%Y-%m-%d')
+                                            else:
+                                                updates_to_apply[col] = value
+
+                                        if not updates_to_apply:
+                                            st.warning("Nothing to update for this gland tag.")
+                                        else:
+                                            if _update_cable_row(category, detail_choice.strip(), updates_to_apply):
+                                                st.success("Gland details updated successfully.")
+                                                st.rerun()
+                                            else:
+                                                st.error("Failed to update gland details.")
+                                    except Exception as exc:
+                                        st.error(f"Unexpected error while submitting gland updates: {exc}")
+
         else:
             st.info(f"'{detail_choice}' details coming soon.")
