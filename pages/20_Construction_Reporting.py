@@ -191,17 +191,19 @@ else:
     column_label, column_values = _get_column_a_details(category)
 
     normalized_category = category.strip().lower()
-    if normalized_category == "cable":
-        toggle_key = "cable_only_incomplete_toggle"
-        if toggle_key not in st.session_state:
-            st.session_state[toggle_key] = False
-        only_incomplete_flag = bool(st.session_state[toggle_key])
-    else:
-        toggle_key = None
-        only_incomplete_flag = False
-
     primary_label = (column_label or "Selection").strip() or "Selection"
     placeholder = f"Select {primary_label}..."
+
+    only_incomplete_flag = False
+    toggle_key = None
+    if normalized_category == "cable":
+        toggle_key = "cable_only_incomplete_toggle"
+        only_incomplete_flag = st.checkbox(
+            "Only Show Incomplete Cables",
+            value=st.session_state.get(toggle_key, False),
+            key=toggle_key,
+            help="Filter to cables missing Date Pulled or Checked By."
+        )
 
     if normalized_category == "cable" and not sheet_df.empty:
         working_df_options = sheet_df.copy()
@@ -240,13 +242,6 @@ else:
         key=detail_key,
         help=f"Choose a {primary_label} to explore further.",
     )
-
-    if normalized_category == "cable":
-        only_incomplete_flag = st.checkbox(
-            "Only Show Incomplete Cables",
-            key=toggle_key,
-            help="Filter to cables missing Date Pulled or Checked By."
-        )
 
     if detail_choice == placeholder:
         if column_values:
