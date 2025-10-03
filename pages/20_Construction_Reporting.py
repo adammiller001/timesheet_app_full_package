@@ -190,8 +190,41 @@ else:
     sheet_df = read_timesheet_data(category, force_refresh=True)
     column_label, column_values = _get_column_a_details(category)
 
+    normalized_category = category.strip().lower()
+    if normalized_category == "cable":
+        toggle_key = "cable_only_incomplete_toggle"
+        if toggle_key not in st.session_state:
+            st.session_state[toggle_key] = False
+        only_incomplete_flag = bool(st.session_state[toggle_key])
+    else:
+        toggle_key = None
+        only_incomplete_flag = False
+
     primary_label = (column_label or "Selection").strip() or "Selection"
     placeholder = f"Select {primary_label}..."
+
+    if normalized_category == "cable" and not sheet_df.empty:
+        working_df_options = sheet_df.copy()
+        working_df_options.columns = [str(col).strip() for col in working_df_options.columns]
+        if working_df_options.columns.tolist():
+            tag_column = working_df_options.columns[0]
+            col_l = working_df_options.columns[11] if len(working_df_options.columns) > 11 else None
+            col_m = working_df_options.columns[12] if len(working_df_options.columns) > 12 else None
+            filtered_tags = []
+            seen_tags = set()
+            for _, cable_row in working_df_options.iterrows():
+                tag_value = str(cable_row.get(tag_column, "")).strip()
+                if not tag_value:
+                    continue
+                if only_incomplete_flag:
+                    val_l = str(cable_row.get(col_l, "")).strip() if col_l else ""
+                    val_m = str(cable_row.get(col_m, "")).strip() if col_m else ""
+                    if val_l and val_m:
+                        continue
+                if tag_value not in seen_tags:
+                    seen_tags.add(tag_value)
+                    filtered_tags.append(tag_value)
+            column_values = filtered_tags
 
     if not column_label and not column_values and sheet_df.empty:
         st.warning("No data found for this category in Google Sheets.")
@@ -207,6 +240,13 @@ else:
         key=detail_key,
         help=f"Choose a {primary_label} to explore further.",
     )
+
+    if normalized_category == "cable":
+        only_incomplete_flag = st.checkbox(
+            "Only Show Incomplete Cables",
+            key=toggle_key,
+            help="Filter to cables missing Date Pulled or Checked By."
+        )
 
     if detail_choice == placeholder:
         if column_values:
