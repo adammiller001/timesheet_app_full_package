@@ -344,7 +344,7 @@ else:
                                     else:
                                         if _update_cable_row(category, detail_choice.strip(), updates_to_apply):
                                             st.success("Cable details updated successfully.")
-                                            st.experimental_rerun()
+                                            st.rerun()
                                         else:
                                             st.error("Failed to update cable details.")
                                 except Exception as exc:
