@@ -1,4 +1,6 @@
 import streamlit as st
+import pandas as pd
+
 from app.integrations.google_sheets import read_timesheet_data
 
 PAGE_TITLE = "Construction Reporting"
@@ -55,40 +57,48 @@ else:
     else:
         sheet_df = sheet_df.copy()
         sheet_df.columns = [str(col).strip() for col in sheet_df.columns]
-        primary_label = str(sheet_df.columns[0]).strip() if len(sheet_df.columns) > 0 else "Selection"
-        column_key = sheet_df.columns[0] if len(sheet_df.columns) > 0 else None
 
-        if column_key is None or not primary_label:
-            st.warning("Unable to determine dropdown label from cell A1.")
-        else:
-            values = []
-            for raw_value in sheet_df[column_key].tolist():
+        chosen_label = None
+        ordered_values = []
+
+        for column in sheet_df.columns:
+            series = sheet_df[column]
+            cleaned = []
+            for raw_value in series.tolist():
+                if pd.isna(raw_value):
+                    continue
                 value = str(raw_value).strip()
                 if value and value.lower() not in {"nan", "none"}:
-                    values.append(value)
+                    cleaned.append(value)
 
-            seen = set()
-            ordered_values = []
-            for value in values:
-                if value not in seen:
-                    ordered_values.append(value)
-                    seen.add(value)
+            if cleaned:
+                seen = set()
+                deduped = []
+                for item in cleaned:
+                    if item not in seen:
+                        deduped.append(item)
+                        seen.add(item)
+                if deduped:
+                    chosen_label = str(column).strip() or "Selection"
+                    ordered_values = deduped
+                    break
 
-            if not ordered_values:
-                st.info("No options available for this category yet.")
+        if not ordered_values or not chosen_label:
+            st.info("No options available for this category yet.")
+        else:
+            placeholder = f"Select {chosen_label}..."
+            detail_options = [placeholder] + ordered_values
+            label_slug = ''.join(ch.lower() if ch.isalnum() else '_' for ch in chosen_label).strip('_') or 'field'
+            detail_key = f"construction_reporting_{category.lower().replace(' ', '_')}_{label_slug}_detail"
+            detail_choice = st.selectbox(
+                chosen_label,
+                detail_options,
+                index=0,
+                key=detail_key,
+                help=f"Choose a {chosen_label} to explore further.",
+            )
+
+            if detail_choice == placeholder:
+                st.info(f"Choose a {chosen_label} to continue.")
             else:
-                placeholder = f"Select {primary_label}..."
-                detail_options = [placeholder] + ordered_values
-                detail_key = f"construction_reporting_{category.lower().replace(' ', '_')}_detail"
-                detail_choice = st.selectbox(
-                    primary_label,
-                    detail_options,
-                    index=0,
-                    key=detail_key,
-                    help=f"Choose a {primary_label} to explore further.",
-                )
-
-                if detail_choice == placeholder:
-                    st.info(f"Choose a {primary_label} to continue.")
-                else:
-                    st.info(f"'{detail_choice}' details coming soon.")
+                st.info(f"'{detail_choice}' details coming soon.")
