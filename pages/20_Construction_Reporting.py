@@ -42,7 +42,6 @@ CATEGORY_OPTIONS = [
     "Tubing",
 ]
 
-select_options = ["Select a category..."] + CATEGORY_OPTIONS
 
 def _get_column_a_details(sheet_name: str) -> Tuple[str, List[str]]:
     sheet_id = str(st.secrets.get("google_sheets_id", "")).strip()
@@ -120,6 +119,61 @@ def _get_column_a_details(sheet_name: str) -> Tuple[str, List[str]]:
 
     values = _clean_and_dedupe(column_entries)
     return header, values
+
+
+def _update_cable_row(sheet_name: str, tag_value: str, updates: dict[str, object]) -> bool:
+    sheet_id = str(st.secrets.get("google_sheets_id", "")).strip()
+    if not sheet_id:
+        st.error("Google Sheets ID is not configured.")
+        return False
+
+    manager = get_sheets_manager()
+    try:
+        worksheet, actual_name = manager.find_worksheet([sheet_name], sheet_id)
+    except Exception as exc:
+        st.error(f"Could not locate worksheet '{sheet_name}': {exc}")
+        return False
+
+    actual_title = actual_name or sheet_name
+    try:
+        df = manager.read_worksheet(actual_title, sheet_id, force_refresh=True)
+    except Exception as exc:
+        st.error(f"Failed to read worksheet '{actual_title}': {exc}")
+        return False
+
+    if df.empty or df.shape[1] == 0:
+        st.error("Worksheet does not contain data to update.")
+        return False
+
+    df = df.copy()
+    df.columns = [str(col).strip() for col in df.columns]
+    tag_column = df.columns[0]
+    match_mask = df[tag_column].astype(str).str.strip() == str(tag_value).strip()
+    if not match_mask.any():
+        st.error("Selected cable tag could not be found in the worksheet.")
+        return False
+
+    first_match_idx = df[match_mask].index[0]
+    updated_row = df.loc[first_match_idx].copy()
+
+    for col, value in updates.items():
+        if col not in df.columns:
+            continue
+        if hasattr(value, "strftime"):
+            updated_row[col] = value.strftime('%Y-%m-%d')
+        else:
+            updated_row[col] = value
+
+    df.loc[first_match_idx] = updated_row
+
+    try:
+        return manager.write_worksheet(actual_title, df, sheet_id)
+    except Exception as exc:
+        st.error(f"Failed to write updates to worksheet '{actual_title}': {exc}")
+        return False
+
+
+select_options = ["Select a category..."] + CATEGORY_OPTIONS
 
 category = st.selectbox(
     "Category",
@@ -202,13 +256,44 @@ else:
                             for col, current_value in mirror_data:
                                 label = col if col else "Field"
                                 input_key = f"cable_update_{tag_slug}_{''.join(ch.lower() if ch.isalnum() else '_' for ch in (col or 'field')).strip('_')}"
-                                updated_values[col] = st.text_input(
-                                    label,
-                                    value=current_value,
-                                    key=input_key
-                                )
+                                if label.lower() == 'date pulled':
+                                    default_date = None
+                                    if current_value:
+                                        try:
+                                            default_date = pd.to_datetime(current_value).date()
+                                        except Exception:
+                                            default_date = None
+                                    updated_values[col] = st.date_input(
+                                        label,
+                                        value=default_date,
+                                        key=input_key
+                                    )
+                                else:
+                                    updated_values[col] = st.text_input(
+                                        label,
+                                        value=current_value,
+                                        key=input_key
+                                    )
 
                             if st.button("Submit", type="primary"):
-                                st.info("Submit functionality not yet implemented.")
+                                try:
+                                    updates_to_apply = {}
+                                    for col, value in updated_values.items():
+                                        if isinstance(value, pd.Timestamp):
+                                            updates_to_apply[col] = value.date()
+                                        elif hasattr(value, 'strftime'):
+                                            updates_to_apply[col] = value
+                                        else:
+                                            updates_to_apply[col] = value
+
+                                    if not updates_to_apply:
+                                        st.warning("Nothing to update for this cable tag.")
+                                    else:
+                                        if _update_cable_row(category, detail_choice.strip(), updates_to_apply):
+                                            st.success("Cable details updated successfully.")
+                                        else:
+                                            st.error("Failed to update cable details.")
+                                except Exception as exc:
+                                    st.error(f"Unexpected error while submitting updates: {exc}")
         else:
             st.info(f"'{detail_choice}' details coming soon.")
