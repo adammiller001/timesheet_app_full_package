@@ -58,47 +58,43 @@ else:
         sheet_df = sheet_df.copy()
         sheet_df.columns = [str(col).strip() for col in sheet_df.columns]
 
-        chosen_label = None
-        ordered_values = []
+        if sheet_df.shape[1] == 0:
+            st.info("No options available for this category yet.")
+        else:
+            primary_label = str(sheet_df.columns[0]).strip() or "Selection"
+            series = sheet_df.iloc[:, 0]
 
-        for column in sheet_df.columns:
-            series = sheet_df[column]
-            cleaned = []
+            cleaned_values = []
             for raw_value in series.tolist():
                 if pd.isna(raw_value):
                     continue
                 value = str(raw_value).strip()
                 if value and value.lower() not in {"nan", "none"}:
-                    cleaned.append(value)
+                    cleaned_values.append(value)
 
-            if cleaned:
-                seen = set()
-                deduped = []
-                for item in cleaned:
-                    if item not in seen:
-                        deduped.append(item)
-                        seen.add(item)
-                if deduped:
-                    chosen_label = str(column).strip() or "Selection"
-                    ordered_values = deduped
-                    break
+            seen = set()
+            ordered_values = []
+            for value in cleaned_values:
+                if value not in seen:
+                    ordered_values.append(value)
+                    seen.add(value)
 
-        if not ordered_values or not chosen_label:
-            st.info("No options available for this category yet.")
-        else:
-            placeholder = f"Select {chosen_label}..."
-            detail_options = [placeholder] + ordered_values
-            label_slug = ''.join(ch.lower() if ch.isalnum() else '_' for ch in chosen_label).strip('_') or 'field'
-            detail_key = f"construction_reporting_{category.lower().replace(' ', '_')}_{label_slug}_detail"
-            detail_choice = st.selectbox(
-                chosen_label,
-                detail_options,
-                index=0,
-                key=detail_key,
-                help=f"Choose a {chosen_label} to explore further.",
-            )
-
-            if detail_choice == placeholder:
-                st.info(f"Choose a {chosen_label} to continue.")
+            if not ordered_values:
+                st.info(f"No {primary_label} values found in this sheet yet.")
             else:
-                st.info(f"'{detail_choice}' details coming soon.")
+                placeholder = f"Select {primary_label}..."
+                detail_options = [placeholder] + ordered_values
+                label_slug = ''.join(ch.lower() if ch.isalnum() else '_' for ch in primary_label).strip('_') or 'field'
+                detail_key = f"construction_reporting_{category.lower().replace(' ', '_')}_{label_slug}_detail"
+                detail_choice = st.selectbox(
+                    primary_label,
+                    detail_options,
+                    index=0,
+                    key=detail_key,
+                    help=f"Choose a {primary_label} to explore further.",
+                )
+
+                if detail_choice == placeholder:
+                    st.info(f"Choose a {primary_label} to continue.")
+                else:
+                    st.info(f"'{detail_choice}' details coming soon.")
