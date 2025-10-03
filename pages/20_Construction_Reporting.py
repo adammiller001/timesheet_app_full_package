@@ -122,6 +122,18 @@ def _get_column_a_details(sheet_name: str) -> Tuple[str, List[str]]:
     return header, values
 
 
+
+def _column_letter(col_index: int) -> str:
+    if col_index <= 0:
+        raise ValueError("Column index must be positive")
+    result = []
+    current = col_index
+    while current > 0:
+        current, remainder = divmod(current - 1, 26)
+        result.append(chr(65 + remainder))
+    return ''.join(reversed(result))
+
+
 def _update_cable_row(sheet_name: str, tag_value: str, updates: dict[str, object]) -> bool:
     sheet_id = str(st.secrets.get("google_sheets_id", "")).strip()
     if not sheet_id:
@@ -148,24 +160,43 @@ def _update_cable_row(sheet_name: str, tag_value: str, updates: dict[str, object
 
     df = df.copy()
     df.columns = [str(col).strip() for col in df.columns]
-    tag_column = df.columns[0]
+    columns = df.columns.tolist()
+    tag_column = columns[0]
     match_mask = df[tag_column].astype(str).str.strip() == str(tag_value).strip()
     if not match_mask.any():
         st.error("Selected cable tag could not be found in the worksheet.")
         return False
 
     first_match_idx = df[match_mask].index[0]
-    updated_row = df.loc[first_match_idx].copy()
+    row_number = first_match_idx + 2  # account for header row
 
+    payload: list[tuple[int, str]] = []
     for col, value in updates.items():
-        if col not in df.columns:
+        if col not in columns:
             continue
-        if hasattr(value, "strftime"):
-            updated_row[col] = value.strftime('%Y-%m-%d')
+        col_idx = columns.index(col) + 1
+        if value is None:
+            str_value = ''
+        elif hasattr(value, 'strftime') and not isinstance(value, str):
+            str_value = value.strftime('%Y-%m-%d')
         else:
-            updated_row[col] = value
+            str_value = str(value).strip()
+        payload.append((col_idx, str_value))
+        df.at[first_match_idx, col] = str_value
 
-    df.loc[first_match_idx] = updated_row
+    if not payload:
+        return True
+
+    if worksheet is not None and hasattr(worksheet, 'update'):
+        try:
+            for col_idx, str_value in payload:
+                cell_ref = f"{_column_letter(col_idx)}{row_number}"
+                worksheet.update(cell_ref, str_value)
+            if hasattr(manager, '_data_cache'):
+                manager._data_cache.pop(actual_title, None)
+            return True
+        except Exception as exc:
+            st.warning(f"Direct cell update failed: {exc}. Falling back to full-sheet write.")
 
     try:
         return manager.write_worksheet(actual_title, df, sheet_id)
