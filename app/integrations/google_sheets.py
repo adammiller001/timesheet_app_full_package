@@ -149,6 +149,11 @@ class GoogleSheetsManager:
                     self._worksheet_cache['worksheets'] = self.spreadsheet.worksheets()
                     self._worksheet_cache['timestamp'] = now
                 worksheets = self._worksheet_cache['worksheets']
+                # Ensure cached worksheets are gspread objects; fallback cache may store dicts
+                if worksheets and not all(hasattr(ws, 'title') for ws in worksheets):
+                    worksheets = self.spreadsheet.worksheets()
+                    self._worksheet_cache['worksheets'] = worksheets
+                    self._worksheet_cache['timestamp'] = now
                 normalized_map = {_normalize_title(ws.title): ws for ws in worksheets}
                 for name in possible_names:
                     key = _normalize_title(name)
