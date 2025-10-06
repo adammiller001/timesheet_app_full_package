@@ -41,6 +41,7 @@ CATEGORY_OPTIONS = [
     "Junction Boxes",
     "Instruments",
     "Tubing",
+    "EHT",
 ]
 
 
@@ -493,3 +494,4 @@ else:
 
         else:
             st.info(f"'{detail_choice}' details coming soon.")
+
