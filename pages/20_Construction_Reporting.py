@@ -468,13 +468,20 @@ else:
                                         parsed_date = pd.to_datetime(current_value, errors="coerce")
                                         if pd.notna(parsed_date):
                                             default_date = parsed_date.date()
+                                    blank_key = f"{input_key}_blank"
+                                    leave_blank = st.checkbox(
+                                        f"Leave {label} blank",
+                                        value=default_date is None,
+                                        key=blank_key
+                                    )
                                     date_value = st.date_input(
                                         label,
                                         value=default_date or date_cls.today(),
                                         key=input_key,
-                                        format="YYYY-MM-DD"
+                                        format="YYYY-MM-DD",
+                                        disabled=leave_blank
                                     )
-                                    updated_values[col] = date_value
+                                    updated_values[col] = None if leave_blank else date_value
                                 else:
                                     updated_values[col] = st.text_input(
                                         label,
