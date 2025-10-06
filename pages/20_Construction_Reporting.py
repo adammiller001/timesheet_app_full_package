@@ -243,16 +243,26 @@ else:
             key=toggle_key,
             help="Filter to glands missing status fields."
         )
+    elif normalized_category == "terminations":
+        toggle_key = "terminations_only_incomplete_toggle"
+        only_incomplete_flag = st.checkbox(
+            "Only Show Incomplete Terminations",
+            value=st.session_state.get(toggle_key, False),
+            key=toggle_key,
+            help="Filter to terminations missing completion dates."
+        )
 
-    if normalized_category in ("cable", "glands") and not sheet_df.empty:
+    if normalized_category in ("cable", "glands", "terminations") and not sheet_df.empty:
         working_df_options = sheet_df.copy()
         working_df_options.columns = [str(col).strip() for col in working_df_options.columns]
         if working_df_options.columns.tolist():
             tag_column = working_df_options.columns[0]
             if normalized_category == "cable":
                 status_cols = list(working_df_options.columns[12:15])
-            else:
+            elif normalized_category == "glands":
                 status_cols = list(working_df_options.columns[5:10])
+            else:
+                status_cols = list(working_df_options.columns[7:9])
             filtered_tags = []
             seen_tags = set()
             for _, entry_row in working_df_options.iterrows():
@@ -400,6 +410,100 @@ else:
                                             st.error("Failed to update cable details.")
                                 except Exception as exc:
                                     st.error(f"Unexpected error while submitting updates: {exc}")
+        elif normalized_category == "terminations":
+            if sheet_df.empty:
+                st.warning("No termination data is available to display.")
+            else:
+                working_df = sheet_df.copy()
+                working_df.columns = [str(col).strip() for col in working_df.columns]
+                if not list(working_df.columns):
+                    st.warning("Terminations sheet is missing header information.")
+                else:
+                    tag_column = working_df.columns[0]
+                    matched_rows = working_df[working_df[tag_column].astype(str).str.strip() == detail_choice.strip()]
+                    if matched_rows.empty:
+                        st.warning("Unable to locate details for the selected termination tag.")
+                    else:
+                        row = matched_rows.iloc[0]
+                        detail_columns = working_df.columns[1:7]
+                        if not list(detail_columns):
+                            st.info("No additional columns (B-G) are available for this terminations sheet.")
+                        else:
+                            detail_records = []
+                            for col in detail_columns:
+                                raw_value = row.get(col, "")
+                                value = "" if pd.isna(raw_value) else str(raw_value).strip()
+                                detail_records.append({"Field": col, "Value": value})
+                            details_df = pd.DataFrame(detail_records)
+                            st.subheader("Termination Details")
+                            st.table(details_df)
+
+                        status_columns = list(working_df.columns[7:10])
+                        if not list(status_columns):
+                            st.info("No status columns (H-J) are available for this terminations sheet.")
+                        else:
+                            status_data = []
+                            for col in status_columns:
+                                raw_value = row.get(col, "")
+                                if pd.isna(raw_value):
+                                    value = ""
+                                else:
+                                    parsed_value = pd.to_datetime(raw_value, errors="coerce")
+                                    if pd.notna(parsed_value):
+                                        value = parsed_value.strftime("%Y-%m-%d")
+                                    else:
+                                        value = str(raw_value).strip()
+                                status_data.append((col, value))
+
+                            st.write("")
+                            st.subheader("Update Termination Status")
+                            updated_values = {}
+                            tag_slug = ''.join(ch.lower() if ch.isalnum() else '_' for ch in detail_choice).strip('_') or 'tag'
+                            for idx, (col, current_value) in enumerate(status_data):
+                                label = col if col else "Field"
+                                input_key = f"termination_update_{tag_slug}_{''.join(ch.lower() if ch.isalnum() else '_' for ch in (col or 'field')).strip('_')}"
+                                if idx < 2:
+                                    default_date = None
+                                    if current_value:
+                                        parsed_date = pd.to_datetime(current_value, errors="coerce")
+                                        if pd.notna(parsed_date):
+                                            default_date = parsed_date.date()
+                                    date_value = st.date_input(
+                                        label,
+                                        value=default_date or date_cls.today(),
+                                        key=input_key,
+                                        format="YYYY-MM-DD"
+                                    )
+                                    updated_values[col] = date_value
+                                else:
+                                    updated_values[col] = st.text_input(
+                                        label,
+                                        value=current_value,
+                                        key=input_key
+                                    )
+
+                            if st.button("Submit Termination Status", type="primary"):
+                                try:
+                                    updates_to_apply = {}
+                                    for col, value in updated_values.items():
+                                        if isinstance(value, pd.Timestamp):
+                                            updates_to_apply[col] = value.strftime("%Y-%m-%d")
+                                        elif hasattr(value, "strftime") and not isinstance(value, str):
+                                            updates_to_apply[col] = value.strftime("%Y-%m-%d")
+                                        else:
+                                            updates_to_apply[col] = value
+
+                                    if not updates_to_apply:
+                                        st.warning("Nothing to update for this termination tag.")
+                                    else:
+                                        if _update_cable_row(category, detail_choice.strip(), updates_to_apply):
+                                            st.success("Termination details updated successfully.")
+                                            st.rerun()
+                                        else:
+                                            st.error("Failed to update termination details.")
+                                except Exception as exc:
+                                    st.error(f"Unexpected error while submitting termination updates: {exc}")
+
         elif normalized_category == "glands":
             if sheet_df.empty:
                 st.warning("No gland data is available to display.")
