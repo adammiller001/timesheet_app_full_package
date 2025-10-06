@@ -439,6 +439,11 @@ else:
                             st.table(details_df)
 
                         status_columns = list(working_df.columns[7:10])
+                        signoff_columns = {}
+                        if len(working_df.columns) > 10 and len(status_columns) > 0:
+                            signoff_columns[status_columns[0]] = working_df.columns[10]
+                        if len(working_df.columns) > 11 and len(status_columns) > 1:
+                            signoff_columns[status_columns[1]] = working_df.columns[11]
                         if not list(status_columns):
                             st.info("No status columns (H-J) are available for this terminations sheet.")
                         else:
@@ -499,6 +504,23 @@ else:
                                             updates_to_apply[col] = value.strftime("%Y-%m-%d")
                                         else:
                                             updates_to_apply[col] = value
+
+                                    if updates_to_apply:
+                                        user_identifier = (
+                                            st.session_state.get("user_name")
+                                            or st.session_state.get("user_email")
+                                            or st.session_state.get("user")
+                                            or "Unknown User"
+                                        )
+                                        for col in status_columns[:2]:
+                                            signoff_col = signoff_columns.get(col)
+                                            if not signoff_col or col not in updates_to_apply:
+                                                continue
+                                            value = updates_to_apply[col]
+                                            if value is None or (isinstance(value, str) and not value.strip()):
+                                                updates_to_apply[signoff_col] = ""
+                                            else:
+                                                updates_to_apply[signoff_col] = user_identifier
 
                                     if not updates_to_apply:
                                         st.warning("Nothing to update for this termination tag.")
