@@ -394,7 +394,7 @@ else:
             elif normalized_category == "terminations":
                 status_cols = list(working_df_options.columns[7:9])
             elif normalized_category == "tray":
-                status_cols = list(working_df_options.columns[9:12])
+                status_cols = list(working_df_options.columns[9:14])
             elif normalized_category == "junction boxes":
                 status_cols = [working_df_options.columns[7]] if len(working_df_options.columns) > 7 else []
             elif normalized_category == "eht rtds":
@@ -602,8 +602,8 @@ else:
                             details_df = pd.DataFrame(detail_records)
                             st.subheader("Tray Details")
                             st.table(details_df)
-                            signoff_column = working_df.columns[12] if len(working_df.columns) > 12 else None
-                            status_columns = list(working_df.columns[9:13])
+                            signoff_column = working_df.columns[14] if len(working_df.columns) > 14 else None
+                            status_columns = list(working_df.columns[9:14])
                             if not list(status_columns):
                                 st.info("No status columns (J-L) are available for this tray sheet.")
                             else:
