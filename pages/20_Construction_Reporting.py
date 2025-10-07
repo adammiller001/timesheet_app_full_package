@@ -349,7 +349,7 @@ else:
                             st.subheader("Cable Details")
                             st.table(details_df)
 
-                            mirror_columns = working_df.columns[12:15]
+                            mirror_columns = list(working_df.columns[12:15])
                             mirror_data = []
                             pulled_status_column = mirror_columns[0] if mirror_columns else None
                             pulled_signoff_column = working_df.columns[15] if len(working_df.columns) > 15 else None
