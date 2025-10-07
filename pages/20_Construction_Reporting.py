@@ -568,7 +568,7 @@ else:
                             details_df = pd.DataFrame(detail_records)
                             st.subheader("Gland Details")
                             st.table(details_df)
-                            status_columns = working_df.columns[5:10]
+                            status_columns = list(working_df.columns[5:10])
                             source_status_column = status_columns[0] if status_columns else None
                             destination_status_column = status_columns[1] if len(status_columns) > 1 else None
                             source_signoff_column = working_df.columns[10] if len(working_df.columns) > 10 else None
