@@ -724,7 +724,10 @@ else:
                         st.warning(f"Unable to locate details for the selected {category_label} tag.")
                     else:
                         row = matched_rows.iloc[0]
-                        detail_columns = working_df.columns[1:10]
+                        if normalized_category == "instruments":
+                            detail_columns = working_df.columns[1:7]
+                        else:
+                            detail_columns = working_df.columns[1:10]
                         if not list(detail_columns):
                             st.info(f"No additional columns (B-J) are available for this {category_label} sheet.")
                         else:
@@ -748,6 +751,18 @@ else:
                             status_columns = [working_df.columns[10]] if len(working_df.columns) > 10 else []
                             date_columns = status_columns.copy()
                             signoff_column = working_df.columns[11] if len(working_df.columns) > 11 else None
+                        elif normalized_category == "instruments":
+                            status_columns = list(working_df.columns[7:10])
+                            date_columns = [working_df.columns[8]] if len(working_df.columns) > 8 else []
+                            signoff_column = working_df.columns[10] if len(working_df.columns) > 10 else None
+                        elif normalized_category == "tubing":
+                            status_columns = list(working_df.columns[10:14])
+                            date_columns = []
+                            if len(status_columns) > 1:
+                                date_columns.append(status_columns[1])
+                            if len(status_columns) > 3:
+                                date_columns.append(status_columns[3])
+                            signoff_column = working_df.columns[14] if len(working_df.columns) > 14 else None
                         else:
                             status_columns = list(working_df.columns[10:14])
                             date_columns = []
