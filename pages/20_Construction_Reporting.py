@@ -439,9 +439,9 @@ else:
                         st.warning("Unable to locate details for the selected tray tag.")
                     else:
                         row = matched_rows.iloc[0]
-                        detail_columns = working_df.columns[1:7]
+                        detail_columns = working_df.columns[1:8]
                         if not list(detail_columns):
-                            st.info("No additional columns (B-G) are available for this tray sheet.")
+                            st.info("No additional columns (B-H) are available for this tray sheet.")
                         else:
                             detail_records = []
                             for col in detail_columns:
@@ -451,10 +451,10 @@ else:
                             details_df = pd.DataFrame(detail_records)
                             st.subheader("Tray Details")
                             st.table(details_df)
-                            signoff_column = working_df.columns[10] if len(working_df.columns) > 10 else None
-                            status_columns = list(working_df.columns[7:10])
+                            signoff_column = working_df.columns[11] if len(working_df.columns) > 11 else None
+                            status_columns = list(working_df.columns[8:11])
                             if not list(status_columns):
-                                st.info("No status columns (H-J) are available for this tray sheet.")
+                                st.info("No status columns (I-K) are available for this tray sheet.")
                             else:
                                 status_data = []
                                 for col in status_columns:
@@ -765,4 +765,7 @@ else:
 
         else:
             st.info(f"'{detail_choice}' details coming soon.")
+
+
+
 
