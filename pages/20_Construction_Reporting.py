@@ -259,6 +259,14 @@ else:
             key=toggle_key,
             help="Filter to junction boxes missing status fields."
         )
+    elif normalized_category == "eht":
+        toggle_key = "eht_only_incomplete_toggle"
+        only_incomplete_flag = st.checkbox(
+            "Only Show Incomplete EHT",
+            value=st.session_state.get(toggle_key, False),
+            key=toggle_key,
+            help="Filter to EHT entries missing completion fields."
+        )
     elif normalized_category == "equipment":
         toggle_key = "equipment_only_incomplete_toggle"
         only_incomplete_flag = st.checkbox(
@@ -275,7 +283,7 @@ else:
             key=toggle_key,
             help="Filter to terminations missing completion dates."
         )
-    if normalized_category in ("cable", "glands", "terminations", "tray", "equipment", "junction boxes") and not sheet_df.empty:
+    if normalized_category in ("cable", "glands", "terminations", "tray", "equipment", "junction boxes", "eht") and not sheet_df.empty:
         working_df_options = sheet_df.copy()
         working_df_options.columns = [str(col).strip() for col in working_df_options.columns]
         if working_df_options.columns.tolist():
@@ -290,6 +298,8 @@ else:
                 status_cols = list(working_df_options.columns[9:12])
             elif normalized_category == "junction boxes":
                 status_cols = [working_df_options.columns[7]] if len(working_df_options.columns) > 7 else []
+            elif normalized_category == "eht":
+                status_cols = list(working_df_options.columns[10:14])
             elif normalized_category == "equipment":
                 status_cols = [working_df_options.columns[7]] if len(working_df_options.columns) > 7 else []
             filtered_tags = []
@@ -299,7 +309,13 @@ else:
                 if not tag_value:
                     continue
                 if only_incomplete_flag:
-                    completeness = [str(entry_row.get(col, "")).strip() for col in status_cols]
+                    completeness = []
+                    for col in status_cols:
+                        raw_status = entry_row.get(col, "")
+                        if pd.isna(raw_status):
+                            completeness.append("")
+                        else:
+                            completeness.append(str(raw_status).strip())
                     if status_cols and all(completeness):
                         continue
                 if tag_value not in seen_tags:
@@ -664,6 +680,121 @@ else:
                                                 st.error("Failed to update junction box details.")
                                     except Exception as exc:
                                         st.error(f"Unexpected error while submitting junction box updates: {exc}")
+
+        elif normalized_category == "eht":
+            if sheet_df.empty:
+                st.warning("No EHT data is available to display.")
+            else:
+                working_df = sheet_df.copy()
+                working_df.columns = [str(col).strip() for col in working_df.columns]
+                if not list(working_df.columns):
+                    st.warning("EHT sheet is missing header information.")
+                else:
+                    tag_column = working_df.columns[0]
+                    matched_rows = working_df[working_df[tag_column].astype(str).str.strip() == detail_choice.strip()]
+                    if matched_rows.empty:
+                        st.warning("Unable to locate details for the selected EHT tag.")
+                    else:
+                        row = matched_rows.iloc[0]
+                        detail_columns = working_df.columns[1:10]
+                        if not list(detail_columns):
+                            st.info("No additional columns (B-J) are available for this EHT sheet.")
+                        else:
+                            detail_records = []
+                            for col in detail_columns:
+                                raw_value = row.get(col, "")
+                                value = "" if pd.isna(raw_value) else str(raw_value).strip()
+                                detail_records.append({"Field": col, "Value": value})
+                            details_df = pd.DataFrame(detail_records)
+                            st.subheader("EHT Details")
+                            st.table(details_df)
+                            signoff_column = working_df.columns[14] if len(working_df.columns) > 14 else None
+                            status_columns = list(working_df.columns[10:14])
+                            date_columns = []
+                            if len(status_columns) > 1:
+                                date_columns.append(status_columns[1])
+                            if len(status_columns) > 3:
+                                date_columns.append(status_columns[3])
+                            if not list(status_columns):
+                                st.info("No status columns (K-N) are available for this EHT sheet.")
+                            else:
+                                status_data = []
+                                for col in status_columns:
+                                    raw_value = row.get(col, "")
+                                    if pd.isna(raw_value):
+                                        value = ""
+                                    elif col in date_columns:
+                                        parsed = pd.to_datetime(raw_value, errors="coerce")
+                                        value = parsed.strftime("%Y-%m-%d") if pd.notna(parsed) else str(raw_value).strip()
+                                    else:
+                                        value = str(raw_value).strip()
+                                    status_data.append((col, value))
+
+                                st.write("")
+                                st.subheader("Update EHT Status")
+                                updated_values = {}
+                                tag_slug = ''.join(ch.lower() if ch.isalnum() else '_' for ch in detail_choice).strip('_') or 'tag'
+                                for col, current_value in status_data:
+                                    label = col if col else "Field"
+                                    input_key = f"eht_update_{tag_slug}_{''.join(ch.lower() if ch.isalnum() else '_' for ch in (col or 'field')).strip('_')}"
+                                    if col in date_columns:
+                                        default_date = None
+                                        if current_value:
+                                            parsed_date = pd.to_datetime(current_value, errors="coerce")
+                                            if pd.notna(parsed_date):
+                                                default_date = parsed_date.date()
+                                        date_value = st.date_input(
+                                            label,
+                                            value=default_date,
+                                            key=input_key,
+                                            format="YYYY-MM-DD"
+                                        )
+                                        updated_values[col] = date_value if date_value else None
+                                    else:
+                                        updated_values[col] = st.text_input(
+                                            label,
+                                            value=current_value,
+                                            key=input_key
+                                        )
+
+                                if st.button("Submit EHT Status", type="primary"):
+                                    try:
+                                        updates_to_apply = {}
+                                        for col, value in updated_values.items():
+                                            if isinstance(value, pd.Timestamp):
+                                                updates_to_apply[col] = value.strftime("%Y-%m-%d")
+                                            elif hasattr(value, "strftime") and not isinstance(value, str):
+                                                updates_to_apply[col] = value.strftime("%Y-%m-%d")
+                                            else:
+                                                updates_to_apply[col] = value
+                                        for col, val in list(updates_to_apply.items()):
+                                            if val is None:
+                                                updates_to_apply[col] = ""
+                                        if updates_to_apply and signoff_column and status_columns:
+                                            user_identifier = (
+                                                st.session_state.get("user_name")
+                                                or st.session_state.get("user_email")
+                                                or st.session_state.get("user")
+                                                or "Unknown User"
+                                            )
+                                            has_value = False
+                                            for date_col in date_columns:
+                                                val = updates_to_apply.get(date_col)
+                                                if val is None or (isinstance(val, str) and not val.strip()):
+                                                    continue
+                                                has_value = True
+                                                break
+                                            updates_to_apply[signoff_column] = user_identifier if has_value else ""
+                                        if not updates_to_apply:
+                                            st.warning("Nothing to update for this EHT tag.")
+                                        else:
+                                            if _update_cable_row(category, detail_choice.strip(), updates_to_apply):
+                                                st.success("EHT details updated successfully.")
+                                                st.rerun()
+                                            else:
+                                                st.error("Failed to update EHT details.")
+                                    except Exception as exc:
+                                        st.error(f"Unexpected error while submitting EHT updates: {exc}")
 
         elif normalized_category == "equipment":
             if sheet_df.empty:
