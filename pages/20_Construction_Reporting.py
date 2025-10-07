@@ -603,7 +603,7 @@ else:
                             st.subheader("Tray Details")
                             st.table(details_df)
                             signoff_column = working_df.columns[12] if len(working_df.columns) > 12 else None
-                            status_columns = list(working_df.columns[9:12])
+                            status_columns = list(working_df.columns[9:13])
                             if not list(status_columns):
                                 st.info("No status columns (J-L) are available for this tray sheet.")
                             else:
