@@ -259,10 +259,14 @@ select_options = ["Select a category..."] + CATEGORY_OPTIONS
 
 progress_date = st.date_input("Progress Date", value=st.session_state.get("progress_download_date", date_cls.today()), key="progress_date_selector")
 if st.button("Generate Today's Progress Workbook", use_container_width=False):
-    workbook_bytes, has_rows = _build_progress_workbook(progress_date)
-    st.session_state["progress_download_bytes"] = workbook_bytes
-    st.session_state["progress_download_date"] = progress_date
-    st.session_state["progress_download_has_rows"] = has_rows
+    try:
+        workbook_bytes, has_rows = _build_progress_workbook(progress_date)
+    except Exception as exc:
+        st.error(f"Unable to build workbook: {exc}")
+    else:
+        st.session_state["progress_download_bytes"] = workbook_bytes
+        st.session_state["progress_download_date"] = progress_date
+        st.session_state["progress_download_has_rows"] = has_rows
 progress_bytes = st.session_state.get("progress_download_bytes")
 if progress_bytes:
     download_label = "Download Today's Progress"
