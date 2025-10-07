@@ -82,7 +82,7 @@ def _filter_completed_rows(df: pd.DataFrame, category: str, target_date: date_cl
 def _build_progress_workbook(target_date: date_cls) -> tuple[bytes, bool]:
     buffer = BytesIO()
     any_rows = False
-    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+    with pd.ExcelWriter(buffer) as writer:
         for category in CATEGORY_OPTIONS:
             df = read_timesheet_data(category, force_refresh=True)
             if df.empty:
