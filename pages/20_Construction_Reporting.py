@@ -603,11 +603,11 @@ else:
                                                 default_date = parsed_date.date()
                                         date_value = st.date_input(
                                             label,
-                                            value=default_date or date_cls.today(),
+                                            value=default_date,
                                             key=input_key,
                                             format="YYYY-MM-DD"
                                         )
-                                        updated_values[col] = date_value
+                                        updated_values[col] = date_value if date_value else None
                                     else:
                                         updated_values[col] = st.text_input(
                                             label,
