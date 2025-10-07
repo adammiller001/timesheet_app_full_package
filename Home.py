@@ -13,7 +13,7 @@ except Exception:
 
 # Configure page
 st.set_page_config(
-    page_title="PTW - Daily Timesheet Suite",
+    page_title="Field Reports Suite",
     page_icon="⏰",
     layout="wide"
 )
@@ -151,7 +151,7 @@ if "user_email" not in st.session_state:
 # Show login form if not authenticated
 if not st.session_state.get("authenticated", False):
     st.markdown("""<style>.block-container {padding-top: 9rem !important;}@media (max-width: 768px){.block-container {padding-top: 6rem !important;}}</style>""", unsafe_allow_html=True)
-    st.title("🔐 PTW - Daily Timesheet Suite")
+    st.title("🔐 Field Reports Suite")
     st.markdown("### Please sign in with your work email")
 
     if not excel_path.exists():
@@ -180,7 +180,7 @@ if not st.session_state.get("authenticated", False):
 else:
     st.markdown("""<style>.block-container {padding-top: 2rem !important;}</style>""", unsafe_allow_html=True)
     # User is authenticated - show main app
-    st.title("📊 PTW - Daily Timesheet Suite")
+    st.title("📊 Field Reports Suite")
 
     # Show user info in sidebar
     with st.sidebar:
@@ -199,7 +199,7 @@ else:
 
     # Welcome message
     user_type = st.session_state.get("user_type", "User")
-    st.write(f"Welcome to the PTW Timesheet Management System, {user_type}!")
+    st.write(f"Welcome to the Field Reports Suite, {user_type}!")
 
 
     # Navigation instructions based on user type
@@ -245,3 +245,5 @@ else:
 
     st.markdown("---")
     st.caption("Navigate using the sidebar to access different features.")
+
+
