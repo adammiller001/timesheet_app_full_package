@@ -42,6 +42,7 @@ CATEGORY_OPTIONS = [
     "Instruments",
     "Tubing",
     "EHT",
+    "EHT RTDs",
 ]
 
 
@@ -267,6 +268,14 @@ else:
             key=toggle_key,
             help="Filter to EHT entries missing completion fields."
         )
+    elif normalized_category == "eht rtds":
+        toggle_key = "eht_rtds_only_incomplete_toggle"
+        only_incomplete_flag = st.checkbox(
+            "Only Show Incomplete EHT RTDs",
+            value=st.session_state.get(toggle_key, False),
+            key=toggle_key,
+            help="Filter to EHT RTDs entries missing completion fields."
+        )
     elif normalized_category == "equipment":
         toggle_key = "equipment_only_incomplete_toggle"
         only_incomplete_flag = st.checkbox(
@@ -283,7 +292,7 @@ else:
             key=toggle_key,
             help="Filter to terminations missing completion dates."
         )
-    if normalized_category in ("cable", "glands", "terminations", "tray", "equipment", "junction boxes", "eht") and not sheet_df.empty:
+    if normalized_category in ("cable", "glands", "terminations", "tray", "equipment", "junction boxes", "eht", "eht rtds") and not sheet_df.empty:
         working_df_options = sheet_df.copy()
         working_df_options.columns = [str(col).strip() for col in working_df_options.columns]
         if working_df_options.columns.tolist():
@@ -298,7 +307,7 @@ else:
                 status_cols = list(working_df_options.columns[9:12])
             elif normalized_category == "junction boxes":
                 status_cols = [working_df_options.columns[7]] if len(working_df_options.columns) > 7 else []
-            elif normalized_category == "eht":
+            elif normalized_category in {"eht", "eht rtds"}:
                 status_cols = list(working_df_options.columns[10:14])
             elif normalized_category == "equipment":
                 status_cols = [working_df_options.columns[7]] if len(working_df_options.columns) > 7 else []
@@ -681,24 +690,25 @@ else:
                                     except Exception as exc:
                                         st.error(f"Unexpected error while submitting junction box updates: {exc}")
 
-        elif normalized_category == "eht":
+        elif normalized_category in {"eht", "eht rtds"}:
+            category_label = category.strip()
             if sheet_df.empty:
-                st.warning("No EHT data is available to display.")
+                st.warning(f"No {category_label} data is available to display.")
             else:
                 working_df = sheet_df.copy()
                 working_df.columns = [str(col).strip() for col in working_df.columns]
                 if not list(working_df.columns):
-                    st.warning("EHT sheet is missing header information.")
+                    st.warning(f"{category_label} sheet is missing header information.")
                 else:
                     tag_column = working_df.columns[0]
                     matched_rows = working_df[working_df[tag_column].astype(str).str.strip() == detail_choice.strip()]
                     if matched_rows.empty:
-                        st.warning("Unable to locate details for the selected EHT tag.")
+                        st.warning(f"Unable to locate details for the selected {category_label} tag.")
                     else:
                         row = matched_rows.iloc[0]
                         detail_columns = working_df.columns[1:10]
                         if not list(detail_columns):
-                            st.info("No additional columns (B-J) are available for this EHT sheet.")
+                            st.info(f"No additional columns (B-J) are available for this {category_label} sheet.")
                         else:
                             detail_records = []
                             for col in detail_columns:
@@ -706,7 +716,7 @@ else:
                                 value = "" if pd.isna(raw_value) else str(raw_value).strip()
                                 detail_records.append({"Field": col, "Value": value})
                             details_df = pd.DataFrame(detail_records)
-                            st.subheader("EHT Details")
+                            st.subheader(f"{category_label} Details")
                             st.table(details_df)
                             signoff_column = working_df.columns[14] if len(working_df.columns) > 14 else None
                             status_columns = list(working_df.columns[10:14])
@@ -716,7 +726,7 @@ else:
                             if len(status_columns) > 3:
                                 date_columns.append(status_columns[3])
                             if not list(status_columns):
-                                st.info("No status columns (K-N) are available for this EHT sheet.")
+                                st.info(f"No status columns (K-N) are available for this {category_label} sheet.")
                             else:
                                 status_data = []
                                 for col in status_columns:
@@ -731,12 +741,13 @@ else:
                                     status_data.append((col, value))
 
                                 st.write("")
-                                st.subheader("Update EHT Status")
+                                st.subheader(f"Update {category_label} Status")
                                 updated_values = {}
                                 tag_slug = ''.join(ch.lower() if ch.isalnum() else '_' for ch in detail_choice).strip('_') or 'tag'
+                                key_prefix = normalized_category.replace(' ', '_') + '_update'
                                 for col, current_value in status_data:
                                     label = col if col else "Field"
-                                    input_key = f"eht_update_{tag_slug}_{''.join(ch.lower() if ch.isalnum() else '_' for ch in (col or 'field')).strip('_')}"
+                                    input_key = f"{key_prefix}_{tag_slug}_{''.join(ch.lower() if ch.isalnum() else '_' for ch in (col or 'field')).strip('_')}"
                                     if col in date_columns:
                                         default_date = None
                                         if current_value:
@@ -757,7 +768,7 @@ else:
                                             key=input_key
                                         )
 
-                                if st.button("Submit EHT Status", type="primary"):
+                                if st.button(f"Submit {category_label} Status", type="primary"):
                                     try:
                                         updates_to_apply = {}
                                         for col, value in updated_values.items():
@@ -786,16 +797,15 @@ else:
                                                 break
                                             updates_to_apply[signoff_column] = user_identifier if has_value else ""
                                         if not updates_to_apply:
-                                            st.warning("Nothing to update for this EHT tag.")
+                                            st.warning(f"Nothing to update for this {category_label} tag.")
                                         else:
                                             if _update_cable_row(category, detail_choice.strip(), updates_to_apply):
-                                                st.success("EHT details updated successfully.")
+                                                st.success(f"{category_label} details updated successfully.")
                                                 st.rerun()
                                             else:
-                                                st.error("Failed to update EHT details.")
+                                                st.error(f"Failed to update {category_label} details.")
                                     except Exception as exc:
-                                        st.error(f"Unexpected error while submitting EHT updates: {exc}")
-
+                                        st.error(f"Unexpected error while submitting {category_label} updates: {exc}")
         elif normalized_category == "equipment":
             if sheet_df.empty:
                 st.warning("No equipment data is available to display.")
