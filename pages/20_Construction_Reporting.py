@@ -323,7 +323,9 @@ else:
                 status_cols = list(working_df_options.columns[9:12])
             elif normalized_category == "junction boxes":
                 status_cols = [working_df_options.columns[7]] if len(working_df_options.columns) > 7 else []
-            elif normalized_category in {"eht", "eht rtds", "instruments", "tubing"}:
+            elif normalized_category == "eht rtds":
+                status_cols = [working_df_options.columns[10]] if len(working_df_options.columns) > 10 else []
+            elif normalized_category in {"eht", "instruments", "tubing"}:
                 status_cols = list(working_df_options.columns[10:14])
             elif normalized_category == "equipment":
                 status_cols = [working_df_options.columns[7]] if len(working_df_options.columns) > 7 else []
@@ -734,94 +736,107 @@ else:
                             details_df = pd.DataFrame(detail_records)
                             st.subheader(f"{category_label} Details")
                             st.table(details_df)
-                            signoff_column = working_df.columns[14] if len(working_df.columns) > 14 else None
+                        if normalized_category == "eht":
                             status_columns = list(working_df.columns[10:14])
                             date_columns = []
                             if len(status_columns) > 1:
                                 date_columns.append(status_columns[1])
                             if len(status_columns) > 3:
                                 date_columns.append(status_columns[3])
-                            if not list(status_columns):
-                                st.info(f"No status columns (K-N) are available for this {category_label} sheet.")
-                            else:
-                                status_data = []
-                                for col in status_columns:
-                                    raw_value = row.get(col, "")
-                                    if pd.isna(raw_value):
-                                        value = ""
-                                    elif col in date_columns:
-                                        parsed = pd.to_datetime(raw_value, errors="coerce")
-                                        value = parsed.strftime("%Y-%m-%d") if pd.notna(parsed) else str(raw_value).strip()
-                                    else:
-                                        value = str(raw_value).strip()
-                                    status_data.append((col, value))
+                            signoff_column = working_df.columns[14] if len(working_df.columns) > 14 else None
+                        elif normalized_category == "eht rtds":
+                            status_columns = [working_df.columns[10]] if len(working_df.columns) > 10 else []
+                            date_columns = status_columns.copy()
+                            signoff_column = working_df.columns[11] if len(working_df.columns) > 11 else None
+                        else:
+                            status_columns = list(working_df.columns[10:14])
+                            date_columns = []
+                            if len(status_columns) > 1:
+                                date_columns.append(status_columns[1])
+                            if len(status_columns) > 3:
+                                date_columns.append(status_columns[3])
+                            signoff_column = working_df.columns[14] if len(working_df.columns) > 14 else None
+                        if not list(status_columns):
+                            st.info(f"No status columns are available for this {category_label} sheet.")
+                        else:
+                            status_data = []
+                            for col in status_columns:
+                                raw_value = row.get(col, "")
+                                if pd.isna(raw_value):
+                                    value = ""
+                                elif col in date_columns:
+                                    parsed = pd.to_datetime(raw_value, errors="coerce")
+                                    value = parsed.strftime("%Y-%m-%d") if pd.notna(parsed) else str(raw_value).strip()
+                                else:
+                                    value = str(raw_value).strip()
+                                status_data.append((col, value))
 
-                                st.write("")
-                                st.subheader(f"Update {category_label} Status")
-                                updated_values = {}
-                                tag_slug = ''.join(ch.lower() if ch.isalnum() else '_' for ch in detail_choice).strip('_') or 'tag'
-                                key_prefix = normalized_category.replace(' ', '_') + '_update'
-                                for col, current_value in status_data:
-                                    label = col if col else "Field"
-                                    input_key = f"{key_prefix}_{tag_slug}_{''.join(ch.lower() if ch.isalnum() else '_' for ch in (col or 'field')).strip('_')}"
-                                    if col in date_columns:
-                                        default_date = None
-                                        if current_value:
-                                            parsed_date = pd.to_datetime(current_value, errors="coerce")
-                                            if pd.notna(parsed_date):
-                                                default_date = parsed_date.date()
-                                        date_value = st.date_input(
-                                            label,
-                                            value=default_date,
-                                            key=input_key,
-                                            format="YYYY-MM-DD"
-                                        )
-                                        updated_values[col] = date_value if date_value else None
-                                    else:
-                                        updated_values[col] = st.text_input(
-                                            label,
-                                            value=current_value,
-                                            key=input_key
-                                        )
+                            st.write("")
+                            st.subheader(f"Update {category_label} Status")
+                            updated_values = {}
+                            tag_slug = ''.join(ch.lower() if ch.isalnum() else '_' for ch in detail_choice).strip('_') or 'tag'
+                            key_prefix = normalized_category.replace(' ', '_') + '_update'
+                            for col, current_value in status_data:
+                                label = col if col else "Field"
+                                input_key = f"{key_prefix}_{tag_slug}_{''.join(ch.lower() if ch.isalnum() else '_' for ch in (col or 'field')).strip('_')}"
+                                if col in date_columns:
+                                    default_date = None
+                                    if current_value:
+                                        parsed_date = pd.to_datetime(current_value, errors="coerce")
+                                        if pd.notna(parsed_date):
+                                            default_date = parsed_date.date()
+                                    date_value = st.date_input(
+                                        label,
+                                        value=default_date,
+                                        key=input_key,
+                                        format="YYYY-MM-DD"
+                                    )
+                                    updated_values[col] = date_value if date_value else None
+                                else:
+                                    updated_values[col] = st.text_input(
+                                        label,
+                                        value=current_value,
+                                        key=input_key
+                                    )
 
-                                if st.button(f"Submit {category_label} Status", type="primary"):
-                                    try:
-                                        updates_to_apply = {}
-                                        for col, value in updated_values.items():
-                                            if isinstance(value, pd.Timestamp):
-                                                updates_to_apply[col] = value.strftime("%Y-%m-%d")
-                                            elif hasattr(value, "strftime") and not isinstance(value, str):
-                                                updates_to_apply[col] = value.strftime("%Y-%m-%d")
-                                            else:
-                                                updates_to_apply[col] = value
-                                        for col, val in list(updates_to_apply.items()):
-                                            if val is None:
-                                                updates_to_apply[col] = ""
-                                        if updates_to_apply and signoff_column and status_columns:
-                                            user_identifier = (
-                                                st.session_state.get("user_name")
-                                                or st.session_state.get("user_email")
-                                                or st.session_state.get("user")
-                                                or "Unknown User"
-                                            )
-                                            has_value = False
-                                            for date_col in date_columns:
-                                                val = updates_to_apply.get(date_col)
-                                                if val is None or (isinstance(val, str) and not val.strip()):
-                                                    continue
-                                                has_value = True
-                                                break
-                                            updates_to_apply[signoff_column] = user_identifier if has_value else ""
-                                        if not updates_to_apply:
-                                            st.warning(f"Nothing to update for this {category_label} tag.")
+                            if st.button(f"Submit {category_label} Status", type="primary"):
+                                try:
+                                    updates_to_apply = {}
+                                    for col, value in updated_values.items():
+                                        if isinstance(value, pd.Timestamp):
+                                            updates_to_apply[col] = value.strftime("%Y-%m-%d")
+                                        elif hasattr(value, "strftime") and not isinstance(value, str):
+                                            updates_to_apply[col] = value.strftime("%Y-%m-%d")
                                         else:
-                                            if _update_cable_row(category, detail_choice.strip(), updates_to_apply):
-                                                st.success(f"{category_label} details updated successfully.")
-                                                st.rerun()
-                                            else:
-                                                st.error(f"Failed to update {category_label} details.")
-                                    except Exception as exc:
-                                        st.error(f"Unexpected error while submitting {category_label} updates: {exc}")
+                                            updates_to_apply[col] = value
+                                    for col, val in list(updates_to_apply.items()):
+                                        if val is None:
+                                            updates_to_apply[col] = ""
+                                    if updates_to_apply and signoff_column and status_columns:
+                                        user_identifier = (
+                                            st.session_state.get("user_name")
+                                            or st.session_state.get("user_email")
+                                            or st.session_state.get("user")
+                                            or "Unknown User"
+                                        )
+                                        has_value = False
+                                        for date_col in date_columns:
+                                            val = updates_to_apply.get(date_col)
+                                            if val is None or (isinstance(val, str) and not val.strip()):
+                                                continue
+                                            has_value = True
+                                            break
+                                        updates_to_apply[signoff_column] = user_identifier if has_value else ""
+                                    if not updates_to_apply:
+                                        st.warning(f"Nothing to update for this {category_label} tag.")
+                                    else:
+                                        if _update_cable_row(category, detail_choice.strip(), updates_to_apply):
+                                            st.success(f"{category_label} details updated successfully.")
+                                            st.rerun()
+                                        else:
+                                            st.error(f"Failed to update {category_label} details.")
+                                except Exception as exc:
+                                    st.error(f"Unexpected error while submitting {category_label} updates: {exc}")
         elif normalized_category == "equipment":
             if sheet_df.empty:
                 st.warning("No equipment data is available to display.")
