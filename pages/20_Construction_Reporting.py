@@ -243,6 +243,14 @@ else:
             key=toggle_key,
             help="Filter to glands missing status fields."
         )
+    elif normalized_category == "tray":
+        toggle_key = "tray_only_incomplete_toggle"
+        only_incomplete_flag = st.checkbox(
+            "Only Show Incomplete Tray",
+            value=st.session_state.get(toggle_key, False),
+            key=toggle_key,
+            help="Filter to trays missing completion fields."
+        )
     elif normalized_category == "terminations":
         toggle_key = "terminations_only_incomplete_toggle"
         only_incomplete_flag = st.checkbox(
@@ -251,7 +259,7 @@ else:
             key=toggle_key,
             help="Filter to terminations missing completion dates."
         )
-    if normalized_category in ("cable", "glands", "terminations") and not sheet_df.empty:
+    if normalized_category in ("cable", "glands", "terminations", "tray") and not sheet_df.empty:
         working_df_options = sheet_df.copy()
         working_df_options.columns = [str(col).strip() for col in working_df_options.columns]
         if working_df_options.columns.tolist():
@@ -260,8 +268,10 @@ else:
                 status_cols = list(working_df_options.columns[12:15])
             elif normalized_category == "glands":
                 status_cols = list(working_df_options.columns[5:10])
-            else:
+            elif normalized_category == "terminations":
                 status_cols = list(working_df_options.columns[7:9])
+            elif normalized_category == "tray":
+                status_cols = list(working_df_options.columns[9:11])
             filtered_tags = []
             seen_tags = set()
             for _, entry_row in working_df_options.iterrows():
