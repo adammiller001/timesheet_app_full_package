@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date as date_cls
+from io import BytesIO
 from typing import List, Tuple
 from urllib.parse import quote
 
@@ -45,6 +46,19 @@ CATEGORY_OPTIONS = [
     "EHT RTDs",
 ]
 
+
+CATEGORY_PROGRESS_COLUMN_MAP = {
+    "Cable": [12],
+    "Glands": [5, 6],
+    "Terminations": [7, 8],
+    "Tray": [9, 10],
+    "Equipment": [7],
+    "Junction Boxes": [7],
+    "EHT": [10, 12],
+    "EHT RTDs": [10],
+    "Instruments": [7],
+    "Tubing": [6],
+}
 
 def _get_column_a_details(sheet_name: str) -> Tuple[str, List[str]]:
     sheet_id = str(st.secrets.get("google_sheets_id", "")).strip()
@@ -207,6 +221,27 @@ def _update_cable_row(sheet_name: str, tag_value: str, updates: dict[str, object
 
 
 select_options = ["Select a category..."] + CATEGORY_OPTIONS
+
+progress_date = st.date_input("Progress Date", value=st.session_state.get("progress_download_date", date_cls.today()), key="progress_date_selector")
+if st.button("Generate Today's Progress Workbook", use_container_width=False):
+    workbook_bytes, has_rows = _build_progress_workbook(progress_date)
+    st.session_state["progress_download_bytes"] = workbook_bytes
+    st.session_state["progress_download_date"] = progress_date
+    st.session_state["progress_download_has_rows"] = has_rows
+progress_bytes = st.session_state.get("progress_download_bytes")
+if progress_bytes:
+    download_label = "Download Today's Progress"
+    progress_date_value = st.session_state.get("progress_download_date")
+    if progress_date_value:
+        download_label = f"Download Today's Progress ({progress_date_value})"
+    st.download_button(
+        download_label,
+        data=progress_bytes,
+        file_name=f"progress_{progress_date_value}.xlsx" if progress_date_value else "progress.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    if not st.session_state.get("progress_download_has_rows", False):
+        st.info("No completed entries were found for the selected date. The workbook contains headers only.")
 
 category = st.selectbox(
     "Category",
