@@ -325,7 +325,11 @@ else:
                 status_cols = [working_df_options.columns[7]] if len(working_df_options.columns) > 7 else []
             elif normalized_category == "eht rtds":
                 status_cols = [working_df_options.columns[10]] if len(working_df_options.columns) > 10 else []
-            elif normalized_category in {"eht", "instruments", "tubing"}:
+            elif normalized_category == "instruments":
+                status_cols = list(working_df_options.columns[7:9])
+            elif normalized_category == "tubing":
+                status_cols = list(working_df_options.columns[7:10])
+            elif normalized_category == "eht":
                 status_cols = list(working_df_options.columns[10:14])
             elif normalized_category == "equipment":
                 status_cols = [working_df_options.columns[7]] if len(working_df_options.columns) > 7 else []
@@ -754,9 +758,9 @@ else:
                             date_columns = status_columns.copy()
                             signoff_column = working_df.columns[11] if len(working_df.columns) > 11 else None
                         elif normalized_category == "instruments":
-                            status_columns = list(working_df.columns[7:10])
-                            date_columns = [working_df.columns[8]] if len(working_df.columns) > 8 else []
-                            signoff_column = working_df.columns[10] if len(working_df.columns) > 10 else None
+                            status_columns = list(working_df.columns[7:9])
+                            date_columns = [working_df.columns[7]] if len(working_df.columns) > 7 else []
+                            signoff_column = working_df.columns[9] if len(working_df.columns) > 9 else None
                         elif normalized_category == "tubing":
                             status_columns = list(working_df.columns[7:10])
                             date_columns = [working_df.columns[7]] if len(working_df.columns) > 7 else []
