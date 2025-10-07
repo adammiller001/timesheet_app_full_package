@@ -251,7 +251,6 @@ else:
             key=toggle_key,
             help="Filter to terminations missing completion dates."
         )
-
     if normalized_category in ("cable", "glands", "terminations") and not sheet_df.empty:
         working_df_options = sheet_df.copy()
         working_df_options.columns = [str(col).strip() for col in working_df_options.columns]
@@ -425,6 +424,33 @@ else:
                                             st.error("Failed to update cable details.")
                                 except Exception as exc:
                                     st.error(f"Unexpected error while submitting updates: {exc}")
+        elif normalized_category == "tray":
+            if sheet_df.empty:
+                st.warning("No tray data is available to display.")
+            else:
+                working_df = sheet_df.copy()
+                working_df.columns = [str(col).strip() for col in working_df.columns]
+                if not list(working_df.columns):
+                    st.warning("Tray sheet is missing header information.")
+                else:
+                    tag_column = working_df.columns[0]
+                    matched_rows = working_df[working_df[tag_column].astype(str).str.strip() == detail_choice.strip()]
+                    if matched_rows.empty:
+                        st.warning("Unable to locate details for the selected tray tag.")
+                    else:
+                        row = matched_rows.iloc[0]
+                        detail_columns = working_df.columns[1:7]
+                        if not list(detail_columns):
+                            st.info("No additional columns (B-G) are available for this tray sheet.")
+                        else:
+                            detail_records = []
+                            for col in detail_columns:
+                                raw_value = row.get(col, "")
+                                value = "" if pd.isna(raw_value) else str(raw_value).strip()
+                                detail_records.append({"Field": col, "Value": value})
+                            details_df = pd.DataFrame(detail_records)
+                            st.subheader("Tray Details")
+                            st.table(details_df)
         elif normalized_category == "terminations":
             if sheet_df.empty:
                 st.warning("No termination data is available to display.")
