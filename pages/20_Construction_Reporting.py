@@ -276,6 +276,22 @@ else:
             key=toggle_key,
             help="Filter to EHT RTDs entries missing completion fields."
         )
+    elif normalized_category == "instruments":
+        toggle_key = "instruments_only_incomplete_toggle"
+        only_incomplete_flag = st.checkbox(
+            "Only Show Incomplete Instruments",
+            value=st.session_state.get(toggle_key, False),
+            key=toggle_key,
+            help="Filter to instruments missing completion fields."
+        )
+    elif normalized_category == "tubing":
+        toggle_key = "tubing_only_incomplete_toggle"
+        only_incomplete_flag = st.checkbox(
+            "Only Show Incomplete Tubing",
+            value=st.session_state.get(toggle_key, False),
+            key=toggle_key,
+            help="Filter to tubing entries missing completion fields."
+        )
     elif normalized_category == "equipment":
         toggle_key = "equipment_only_incomplete_toggle"
         only_incomplete_flag = st.checkbox(
@@ -292,7 +308,7 @@ else:
             key=toggle_key,
             help="Filter to terminations missing completion dates."
         )
-    if normalized_category in ("cable", "glands", "terminations", "tray", "equipment", "junction boxes", "eht", "eht rtds") and not sheet_df.empty:
+    if normalized_category in ("cable", "glands", "terminations", "tray", "equipment", "junction boxes", "eht", "eht rtds", "instruments", "tubing") and not sheet_df.empty:
         working_df_options = sheet_df.copy()
         working_df_options.columns = [str(col).strip() for col in working_df_options.columns]
         if working_df_options.columns.tolist():
@@ -307,7 +323,7 @@ else:
                 status_cols = list(working_df_options.columns[9:12])
             elif normalized_category == "junction boxes":
                 status_cols = [working_df_options.columns[7]] if len(working_df_options.columns) > 7 else []
-            elif normalized_category in {"eht", "eht rtds"}:
+            elif normalized_category in {"eht", "eht rtds", "instruments", "tubing"}:
                 status_cols = list(working_df_options.columns[10:14])
             elif normalized_category == "equipment":
                 status_cols = [working_df_options.columns[7]] if len(working_df_options.columns) > 7 else []
@@ -690,7 +706,7 @@ else:
                                     except Exception as exc:
                                         st.error(f"Unexpected error while submitting junction box updates: {exc}")
 
-        elif normalized_category in {"eht", "eht rtds"}:
+        elif normalized_category in {"eht", "eht rtds", "instruments", "tubing"}:
             category_label = category.strip()
             if sheet_df.empty:
                 st.warning(f"No {category_label} data is available to display.")
