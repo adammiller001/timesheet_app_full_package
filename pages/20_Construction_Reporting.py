@@ -251,6 +251,14 @@ else:
             key=toggle_key,
             help="Filter to trays missing completion fields."
         )
+    elif normalized_category == "junction boxes":
+        toggle_key = "junction_boxes_only_incomplete_toggle"
+        only_incomplete_flag = st.checkbox(
+            "Only Show Incomplete Junction Boxes",
+            value=st.session_state.get(toggle_key, False),
+            key=toggle_key,
+            help="Filter to junction boxes missing status fields."
+        )
     elif normalized_category == "equipment":
         toggle_key = "equipment_only_incomplete_toggle"
         only_incomplete_flag = st.checkbox(
@@ -267,7 +275,7 @@ else:
             key=toggle_key,
             help="Filter to terminations missing completion dates."
         )
-    if normalized_category in ("cable", "glands", "terminations", "tray", "equipment") and not sheet_df.empty:
+    if normalized_category in ("cable", "glands", "terminations", "tray", "equipment", "junction boxes") and not sheet_df.empty:
         working_df_options = sheet_df.copy()
         working_df_options.columns = [str(col).strip() for col in working_df_options.columns]
         if working_df_options.columns.tolist():
@@ -279,7 +287,9 @@ else:
             elif normalized_category == "terminations":
                 status_cols = list(working_df_options.columns[7:9])
             elif normalized_category == "tray":
-                status_cols = list(working_df_options.columns[9:11])
+                status_cols = list(working_df_options.columns[9:12])
+            elif normalized_category == "junction boxes":
+                status_cols = [working_df_options.columns[7]] if len(working_df_options.columns) > 7 else []
             elif normalized_category == "equipment":
                 status_cols = [working_df_options.columns[7]] if len(working_df_options.columns) > 7 else []
             filtered_tags = []
@@ -551,6 +561,110 @@ else:
                                                 st.error("Failed to update tray details.")
                                     except Exception as exc:
                                         st.error(f"Unexpected error while submitting tray updates: {exc}")
+        elif normalized_category == "junction boxes":
+            if sheet_df.empty:
+                st.warning("No junction box data is available to display.")
+            else:
+                working_df = sheet_df.copy()
+                working_df.columns = [str(col).strip() for col in working_df.columns]
+                if not list(working_df.columns):
+                    st.warning("Junction box sheet is missing header information.")
+                else:
+                    tag_column = working_df.columns[0]
+                    matched_rows = working_df[working_df[tag_column].astype(str).str.strip() == detail_choice.strip()]
+                    if matched_rows.empty:
+                        st.warning("Unable to locate details for the selected junction box tag.")
+                    else:
+                        row = matched_rows.iloc[0]
+                        detail_columns = working_df.columns[1:7]
+                        if not list(detail_columns):
+                            st.info("No additional columns (B-G) are available for this junction box sheet.")
+                        else:
+                            detail_records = []
+                            for col in detail_columns:
+                                raw_value = row.get(col, "")
+                                value = "" if pd.isna(raw_value) else str(raw_value).strip()
+                                detail_records.append({"Field": col, "Value": value})
+                            details_df = pd.DataFrame(detail_records)
+                            st.subheader("Junction Box Details")
+                            st.table(details_df)
+                            signoff_column = working_df.columns[9] if len(working_df.columns) > 9 else None
+                            status_columns = list(working_df.columns[7:9])
+                            if not list(status_columns):
+                                st.info("No status columns (H-I) are available for this junction box sheet.")
+                            else:
+                                status_data = []
+                                for col in status_columns:
+                                    raw_value = row.get(col, "")
+                                    if pd.isna(raw_value):
+                                        value = ""
+                                    elif col and 'date' in col.lower():
+                                        parsed = pd.to_datetime(raw_value, errors='coerce')
+                                        value = parsed.strftime('%Y-%m-%d') if pd.notna(parsed) else str(raw_value).strip()
+                                    else:
+                                        value = str(raw_value).strip()
+                                    status_data.append((col, value))
+                                st.write("")
+                                st.subheader("Update Junction Box Status")
+                                updated_values = {}
+                                tag_slug = ''.join(ch.lower() if ch.isalnum() else '_' for ch in detail_choice).strip('_') or 'tag'
+                                for col, current_value in status_data:
+                                    label = col if col else "Field"
+                                    input_key = f"junction_box_update_{tag_slug}_{''.join(ch.lower() if ch.isalnum() else '_' for ch in (col or 'field')).strip('_')}"
+                                    if label and 'date' in label.lower():
+                                        default_date = None
+                                        if current_value:
+                                            parsed_date = pd.to_datetime(current_value, errors='coerce')
+                                            if pd.notna(parsed_date):
+                                                default_date = parsed_date.date()
+                                        date_value = st.date_input(
+                                            label,
+                                            value=default_date,
+                                            key=input_key,
+                                            format="YYYY-MM-DD"
+                                        )
+                                        updated_values[col] = date_value if date_value else None
+                                    else:
+                                        updated_values[col] = st.text_input(
+                                            label,
+                                            value=current_value,
+                                            key=input_key
+                                        )
+                                if st.button("Submit Junction Box Status", type="primary"):
+                                    try:
+                                        updates_to_apply = {}
+                                        for col, value in updated_values.items():
+                                            if isinstance(value, pd.Timestamp):
+                                                updates_to_apply[col] = value.strftime('%Y-%m-%d')
+                                            elif hasattr(value, 'strftime') and not isinstance(value, str):
+                                                updates_to_apply[col] = value.strftime('%Y-%m-%d')
+                                            else:
+                                                updates_to_apply[col] = value
+                                        if updates_to_apply and signoff_column and status_columns:
+                                            date_col = status_columns[0]
+                                            if date_col in updates_to_apply:
+                                                user_identifier = (
+                                                    st.session_state.get("user_name")
+                                                    or st.session_state.get("user_email")
+                                                    or st.session_state.get("user")
+                                                    or "Unknown User"
+                                                )
+                                                date_value = updates_to_apply[date_col]
+                                                if date_value is None or (isinstance(date_value, str) and not date_value.strip()):
+                                                    updates_to_apply[signoff_column] = ""
+                                                else:
+                                                    updates_to_apply[signoff_column] = user_identifier
+                                        if not updates_to_apply:
+                                            st.warning("Nothing to update for this junction box tag.")
+                                        else:
+                                            if _update_cable_row(category, detail_choice.strip(), updates_to_apply):
+                                                st.success("Junction box details updated successfully.")
+                                                st.rerun()
+                                            else:
+                                                st.error("Failed to update junction box details.")
+                                    except Exception as exc:
+                                        st.error(f"Unexpected error while submitting junction box updates: {exc}")
+
         elif normalized_category == "equipment":
             if sheet_df.empty:
                 st.warning("No equipment data is available to display.")
