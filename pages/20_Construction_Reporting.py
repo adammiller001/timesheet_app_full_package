@@ -60,6 +60,41 @@ CATEGORY_PROGRESS_COLUMN_MAP = {
     "Tubing": [6],
 }
 
+
+
+
+def _filter_completed_rows(df: pd.DataFrame, category: str, target_date: date_cls) -> pd.DataFrame:
+    column_indexes = CATEGORY_PROGRESS_COLUMN_MAP.get(category, [])
+    if not column_indexes or df.empty:
+        return df.iloc[0:0].copy()
+
+    match_series = pd.Series(False, index=df.index)
+    for col_index in column_indexes:
+        if col_index >= len(df.columns):
+            continue
+        col_name = df.columns[col_index]
+        parsed_dates = pd.to_datetime(df[col_name], errors="coerce").dt.date
+        match_series = match_series | (parsed_dates == target_date)
+
+    return df.loc[match_series].copy()
+
+
+def _build_progress_workbook(target_date: date_cls) -> tuple[bytes, bool]:
+    buffer = BytesIO()
+    any_rows = False
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        for category in CATEGORY_OPTIONS:
+            df = read_timesheet_data(category, force_refresh=True)
+            if df.empty:
+                filtered_df = df
+            else:
+                filtered_df = _filter_completed_rows(df, category, target_date)
+                if not filtered_df.empty:
+                    any_rows = True
+            filtered_df.to_excel(writer, sheet_name=category[:31], index=False)
+    buffer.seek(0)
+    return buffer.getvalue(), any_rows
+
 def _get_column_a_details(sheet_name: str) -> Tuple[str, List[str]]:
     sheet_id = str(st.secrets.get("google_sheets_id", "")).strip()
     if not sheet_id:
@@ -363,7 +398,7 @@ else:
             elif normalized_category == "instruments":
                 status_cols = list(working_df_options.columns[7:9])
             elif normalized_category == "tubing":
-                status_cols = list(working_df_options.columns[7:10])
+                status_cols = list(working_df_options.columns[6:9])
             elif normalized_category == "eht":
                 status_cols = list(working_df_options.columns[10:14])
             elif normalized_category == "equipment":
@@ -797,9 +832,9 @@ else:
                             date_columns = [working_df.columns[7]] if len(working_df.columns) > 7 else []
                             signoff_column = working_df.columns[9] if len(working_df.columns) > 9 else None
                         elif normalized_category == "tubing":
-                            status_columns = list(working_df.columns[7:10])
-                            date_columns = [working_df.columns[7]] if len(working_df.columns) > 7 else []
-                            signoff_column = working_df.columns[10] if len(working_df.columns) > 10 else None
+                            status_columns = list(working_df.columns[6:9])
+                            date_columns = [working_df.columns[6]] if len(working_df.columns) > 6 else []
+                            signoff_column = working_df.columns[9] if len(working_df.columns) > 9 else None
                         else:
                             status_columns = list(working_df.columns[10:14])
                             date_columns = []
