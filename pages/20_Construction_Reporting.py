@@ -569,6 +569,10 @@ else:
                             st.subheader("Gland Details")
                             st.table(details_df)
                             status_columns = working_df.columns[5:10]
+                            source_status_column = status_columns[0] if status_columns else None
+                            destination_status_column = status_columns[1] if len(status_columns) > 1 else None
+                            source_signoff_column = working_df.columns[10] if len(working_df.columns) > 10 else None
+                            destination_signoff_column = working_df.columns[11] if len(working_df.columns) > 11 else None
                             if not list(status_columns):
                                 st.info("No status columns (F-J) are available for this glands sheet.")
                             else:
@@ -622,6 +626,25 @@ else:
                                             else:
                                                 updates_to_apply[col] = value
 
+                                        if updates_to_apply:
+                                            user_identifier = (
+                                                st.session_state.get("user_name")
+                                                or st.session_state.get("user_email")
+                                                or st.session_state.get("user")
+                                                or "Unknown User"
+                                            )
+                                            if source_status_column and source_signoff_column and source_status_column in updates_to_apply:
+                                                source_value = updates_to_apply[source_status_column]
+                                                if source_value is None or (isinstance(source_value, str) and not source_value.strip()):
+                                                    updates_to_apply[source_signoff_column] = ""
+                                                else:
+                                                    updates_to_apply[source_signoff_column] = user_identifier
+                                            if destination_status_column and destination_signoff_column and destination_status_column in updates_to_apply:
+                                                dest_value = updates_to_apply[destination_status_column]
+                                                if dest_value is None or (isinstance(dest_value, str) and not dest_value.strip()):
+                                                    updates_to_apply[destination_signoff_column] = ""
+                                                else:
+                                                    updates_to_apply[destination_signoff_column] = user_identifier
                                         if not updates_to_apply:
                                             st.warning("Nothing to update for this gland tag.")
                                         else:
