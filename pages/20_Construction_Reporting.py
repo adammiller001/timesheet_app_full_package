@@ -569,11 +569,11 @@ else:
                             st.subheader("Gland Details")
                             st.table(details_df)
                             status_columns_raw = list(working_df.columns[5:10])
-                            status_columns = [col for col in status_columns_raw if '(y)' not in str(col).lower()]
+                            status_columns = [col for col in status_columns_raw if '(y)' not in str(col).lower() and 'user' not in str(col).lower()]
                             source_status_column = next((col for col in status_columns if 'source' in str(col).lower()), None)
                             destination_status_column = next((col for col in status_columns if 'destination' in str(col).lower()), None)
-                            source_signoff_column = next((col for col in working_df.columns if 'source' in str(col).lower() and ('by' in str(col).lower() or 'user' in str(col).lower() or 'sign' in str(col).lower()) and col not in status_columns), None)
-                            destination_signoff_column = next((col for col in working_df.columns if 'destination' in str(col).lower() and ('by' in str(col).lower() or 'user' in str(col).lower() or 'sign' in str(col).lower()) and col not in status_columns), None)
+                            source_signoff_column = working_df.columns[8] if len(working_df.columns) > 8 else None
+                            destination_signoff_column = working_df.columns[9] if len(working_df.columns) > 9 else None
                             if not list(status_columns):
                                 st.info("No status columns (F-J) are available for this glands sheet.")
                             else:
