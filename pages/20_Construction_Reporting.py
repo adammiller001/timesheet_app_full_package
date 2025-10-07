@@ -351,6 +351,8 @@ else:
 
                             mirror_columns = working_df.columns[12:15]
                             mirror_data = []
+                            pulled_status_column = mirror_columns[0] if mirror_columns else None
+                            pulled_signoff_column = working_df.columns[15] if len(working_df.columns) > 15 else None
                             for col in mirror_columns:
                                 raw_value = row.get(col, "")
                                 if pd.isna(raw_value):
@@ -400,6 +402,19 @@ else:
                                         else:
                                             updates_to_apply[col] = value
 
+                                    if updates_to_apply and pulled_status_column and pulled_signoff_column:
+                                        user_identifier = (
+                                            st.session_state.get("user_name")
+                                            or st.session_state.get("user_email")
+                                            or st.session_state.get("user")
+                                            or "Unknown User"
+                                        )
+                                        if pulled_status_column in updates_to_apply:
+                                            pulled_value = updates_to_apply[pulled_status_column]
+                                            if pulled_value is None or (isinstance(pulled_value, str) and not pulled_value.strip()):
+                                                updates_to_apply[pulled_signoff_column] = ""
+                                            else:
+                                                updates_to_apply[pulled_signoff_column] = user_identifier
                                     if not updates_to_apply:
                                         st.warning("Nothing to update for this cable tag.")
                                     else:
