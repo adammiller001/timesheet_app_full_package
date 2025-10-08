@@ -61,6 +61,67 @@ CATEGORY_PROGRESS_COLUMN_MAP = {
 }
 
 
+USER_DIRECTORY_CACHE_KEY = "_user_directory_lookup"
+
+
+def _get_user_directory() -> dict[str, str]:
+    cached = st.session_state.get(USER_DIRECTORY_CACHE_KEY)
+    if cached is not None:
+        return cached
+
+    mapping: dict[str, str] = {}
+    try:
+        users_df = read_timesheet_data("Users", force_refresh=True)
+    except Exception:
+        users_df = pd.DataFrame()
+
+    if not users_df.empty:
+        columns = [str(col).strip() for col in users_df.columns]
+        email_col = None
+        name_col = None
+        for col in columns:
+            lowered = col.lower()
+            if email_col is None and "email" in lowered:
+                email_col = col
+            if name_col is None and any(token in lowered for token in ("name", "user")) and "email" not in lowered:
+                name_col = col
+        if name_col is None and columns:
+            name_col = columns[0]
+        if email_col is None and len(columns) > 1:
+            email_col = columns[1]
+
+        if name_col and email_col:
+            for _, row in users_df.iterrows():
+                name_value = str(row.get(name_col, "")).strip()
+                email_value = str(row.get(email_col, "")).strip().lower()
+                if name_value and email_value and email_value not in mapping:
+                    mapping[email_value] = name_value
+
+    st.session_state[USER_DIRECTORY_CACHE_KEY] = mapping
+    return mapping
+
+
+def _current_user_display_name() -> str:
+    email = str(
+        st.session_state.get("user_email")
+        or st.session_state.get("user")
+        or ""
+    ).strip().lower()
+    if email:
+        resolved = _get_user_directory().get(email)
+        if resolved:
+            return resolved
+    explicit_name = st.session_state.get("user_name")
+    if explicit_name:
+        explicit_str = str(explicit_name).strip()
+        if explicit_str:
+            return explicit_str
+    if email:
+        return email
+    return "Unknown User"
+
+
+
 
 
 def _filter_completed_rows(df: pd.DataFrame, category: str, target_date: date_cls) -> pd.DataFrame:
@@ -553,12 +614,8 @@ else:
                                             updates_to_apply[col] = value
 
                                     if updates_to_apply and pulled_status_column and pulled_signoff_column:
-                                        user_identifier = (
-                                            st.session_state.get("user_name")
-                                            or st.session_state.get("user_email")
-                                            or st.session_state.get("user")
-                                            or "Unknown User"
-                                        )
+                                        user_identifier = _current_user_display_name()
+
                                         if pulled_status_column in updates_to_apply:
                                             pulled_value = updates_to_apply[pulled_status_column]
                                             if pulled_value is None or (isinstance(pulled_value, str) and not pulled_value.strip()):
@@ -655,12 +712,8 @@ else:
                                             else:
                                                 updates_to_apply[col] = value
                                         if updates_to_apply and signoff_column:
-                                            user_identifier = (
-                                                st.session_state.get("user_name")
-                                                or st.session_state.get("user_email")
-                                                or st.session_state.get("user")
-                                                or "Unknown User"
-                                            )
+                                            user_identifier = _current_user_display_name()
+
                                             has_value = False
                                             for col in status_columns:
                                                 if col in updates_to_apply:
@@ -764,12 +817,7 @@ else:
                                         if updates_to_apply and signoff_column and status_columns:
                                             date_col = status_columns[0]
                                             if date_col in updates_to_apply:
-                                                user_identifier = (
-                                                    st.session_state.get("user_name")
-                                                    or st.session_state.get("user_email")
-                                                    or st.session_state.get("user")
-                                                    or "Unknown User"
-                                                )
+                                                user_identifier = _current_user_display_name()
                                                 date_value = updates_to_apply[date_col]
                                                 if date_value is None or (isinstance(date_value, str) and not date_value.strip()):
                                                     updates_to_apply[signoff_column] = ""
@@ -908,12 +956,8 @@ else:
                                         if val is None:
                                             updates_to_apply[col] = ""
                                     if updates_to_apply and signoff_column and status_columns:
-                                        user_identifier = (
-                                            st.session_state.get("user_name")
-                                            or st.session_state.get("user_email")
-                                            or st.session_state.get("user")
-                                            or "Unknown User"
-                                        )
+                                        user_identifier = _current_user_display_name()
+
                                         has_value = False
                                         for date_col in date_columns:
                                             val = updates_to_apply.get(date_col)
@@ -1014,12 +1058,7 @@ else:
                                         if updates_to_apply and signoff_column and status_columns:
                                             date_col = status_columns[0]
                                             if date_col in updates_to_apply:
-                                                user_identifier = (
-                                                    st.session_state.get("user_name")
-                                                    or st.session_state.get("user_email")
-                                                    or st.session_state.get("user")
-                                                    or "Unknown User"
-                                                )
+                                                user_identifier = _current_user_display_name()
                                                 date_value = updates_to_apply[date_col]
                                                 if date_value is None or (isinstance(date_value, str) and not date_value.strip()):
                                                     updates_to_apply[signoff_column] = ""
@@ -1124,12 +1163,8 @@ else:
                                             updates_to_apply[col] = value
 
                                     if updates_to_apply:
-                                        user_identifier = (
-                                            st.session_state.get("user_name")
-                                            or st.session_state.get("user_email")
-                                            or st.session_state.get("user")
-                                            or "Unknown User"
-                                        )
+                                        user_identifier = _current_user_display_name()
+
                                         for col in status_columns[:2]:
                                             signoff_col = signoff_columns.get(col)
                                             if not signoff_col or col not in updates_to_apply:
@@ -1238,12 +1273,8 @@ else:
                                                 updates_to_apply[col] = value
 
                                         if updates_to_apply:
-                                            user_identifier = (
-                                                st.session_state.get("user_name")
-                                                or st.session_state.get("user_email")
-                                                or st.session_state.get("user")
-                                                or "Unknown User"
-                                            )
+                                            user_identifier = _current_user_display_name()
+
                                             if source_status_column and source_signoff_column and source_status_column in updates_to_apply:
                                                 source_value = updates_to_apply[source_status_column]
                                                 if source_value is None or (isinstance(source_value, str) and not source_value.strip()):
