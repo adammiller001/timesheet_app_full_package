@@ -57,7 +57,7 @@ CATEGORY_PROGRESS_COLUMN_MAP = {
     "EHT": [10, 12],
     "EHT RTDs": [10],
     "Instruments": [7],
-    "Tubing": [6],
+    "Tubing": [7, 9],
 }
 
 
