@@ -5,7 +5,7 @@ from io import BytesIO
 from typing import List, Tuple
 from urllib.parse import quote
 
-from openpyxl.styles import Alignment
+from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
@@ -166,6 +166,10 @@ def _build_progress_workbook(target_date: date_cls) -> tuple[bytes, bool]:
             for row in worksheet.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=max_column):
                 for cell in row:
                     cell.alignment = alignment
+
+            header_font = Font(color="FFFFFF", bold=True)
+            for cell in worksheet[1]:
+                cell.font = header_font
 
             for col_idx in range(1, max_column + 1):
                 column_letter = get_column_letter(col_idx)
