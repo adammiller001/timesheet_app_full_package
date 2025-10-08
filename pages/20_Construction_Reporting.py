@@ -54,7 +54,7 @@ CATEGORY_PROGRESS_COLUMN_MAP = {
     "Tray": [9, 10],
     "Equipment": [7],
     "Junction Boxes": [7],
-    "EHT": [10, 12],
+    "EHT": [11, 13],
     "EHT RTDs": [10],
     "Instruments": [7],
     "Tubing": [7, 9],
