@@ -48,7 +48,7 @@ CATEGORY_OPTIONS = [
 
 
 CATEGORY_PROGRESS_COLUMN_MAP = {
-    "Cable": [12],
+    "Cable": [13],
     "Glands": [5, 6],
     "Terminations": [7, 8],
     "Tray": [9, 10],
