@@ -5,6 +5,10 @@ from io import BytesIO
 from typing import List, Tuple
 from urllib.parse import quote
 
+from openpyxl.styles import Alignment
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
+
 from app.integrations.google_sheets import get_sheets_manager, read_timesheet_data
 
 PAGE_TITLE = "Construction Reporting"
@@ -153,14 +157,37 @@ def _build_progress_workbook(target_date: date_cls) -> tuple[bytes, bool]:
                 if not filtered_df.empty:
                     any_rows = True
             filtered_df.to_excel(writer, sheet_name=category[:31], index=False)
+
             worksheet = writer.sheets[category[:31]]
-            # Auto-fit columns
-            for idx, column in enumerate(filtered_df.columns, 1):
-                column_cells = [column] + filtered_df[column].astype(str).tolist() if not filtered_df.empty else [column]
+            max_column = worksheet.max_column
+            max_row = worksheet.max_row
+
+            alignment = Alignment(horizontal="center", vertical="center")
+            for row in worksheet.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=max_column):
+                for cell in row:
+                    cell.alignment = alignment
+
+            for col_idx in range(1, max_column + 1):
+                column_letter = get_column_letter(col_idx)
+                if not filtered_df.empty and col_idx <= len(filtered_df.columns):
+                    column_cells = [filtered_df.columns[col_idx - 1]] + filtered_df.iloc[:, col_idx - 1].astype(str).tolist()
+                else:
+                    column_cells = [worksheet.cell(row=1, column=col_idx).value or ""]
                 max_length = max(len(str(cell)) for cell in column_cells)
-                adjusted_width = max_length + 2
-                column_letter = worksheet.cell(row=1, column=idx).column_letter
-                worksheet.column_dimensions[column_letter].width = adjusted_width
+                worksheet.column_dimensions[column_letter].width = max_length + 2
+
+            if not filtered_df.empty:
+                table_ref = f"A1:{get_column_letter(max_column)}{max_row}"
+                table_name = f"Table_{category[:20].replace(' ', '_')}"
+                table = Table(displayName=table_name, ref=table_ref)
+                table.tableStyleInfo = TableStyleInfo(
+                    name="TableStyleLight8",
+                    showFirstColumn=False,
+                    showLastColumn=False,
+                    showRowStripes=False,
+                    showColumnStripes=False
+                )
+                worksheet.add_table(table)
     buffer.seek(0)
     return buffer.getvalue(), any_rows
 
