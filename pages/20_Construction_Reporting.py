@@ -143,7 +143,7 @@ def _filter_completed_rows(df: pd.DataFrame, category: str, target_date: date_cl
 def _build_progress_workbook(target_date: date_cls) -> tuple[bytes, bool]:
     buffer = BytesIO()
     any_rows = False
-    with pd.ExcelWriter(buffer) as writer:
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         for category in CATEGORY_OPTIONS:
             df = read_timesheet_data(category, force_refresh=True)
             if df.empty:
@@ -153,6 +153,14 @@ def _build_progress_workbook(target_date: date_cls) -> tuple[bytes, bool]:
                 if not filtered_df.empty:
                     any_rows = True
             filtered_df.to_excel(writer, sheet_name=category[:31], index=False)
+            worksheet = writer.sheets[category[:31]]
+            # Auto-fit columns
+            for idx, column in enumerate(filtered_df.columns, 1):
+                column_cells = [column] + filtered_df[column].astype(str).tolist() if not filtered_df.empty else [column]
+                max_length = max(len(str(cell)) for cell in column_cells)
+                adjusted_width = max_length + 2
+                column_letter = worksheet.cell(row=1, column=idx).column_letter
+                worksheet.column_dimensions[column_letter].width = adjusted_width
     buffer.seek(0)
     return buffer.getvalue(), any_rows
 
