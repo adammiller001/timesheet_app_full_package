@@ -836,9 +836,13 @@ else:
                             date_columns = [working_df.columns[7]] if len(working_df.columns) > 7 else []
                             signoff_column = working_df.columns[9] if len(working_df.columns) > 9 else None
                         elif normalized_category == "tubing":
-                            status_columns = list(working_df.columns[6:9])
-                            date_columns = [working_df.columns[6]] if len(working_df.columns) > 6 else []
-                            signoff_column = working_df.columns[9] if len(working_df.columns) > 9 else None
+                            status_columns = list(working_df.columns[6:11])
+                            date_columns = []
+                            if len(status_columns) > 1:
+                                date_columns.append(status_columns[1])
+                            if len(status_columns) > 3:
+                                date_columns.append(status_columns[3])
+                            signoff_column = working_df.columns[11] if len(working_df.columns) > 11 else None
                         else:
                             status_columns = list(working_df.columns[10:14])
                             date_columns = []
