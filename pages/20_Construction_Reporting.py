@@ -1130,9 +1130,9 @@ else:
                         st.warning("Unable to locate details for the selected termination tag.")
                     else:
                         row = matched_rows.iloc[0]
-                        detail_columns = working_df.columns[1:7]
+                        detail_columns = working_df.columns[1:8]
                         if not list(detail_columns):
-                            st.info("No additional columns (B-G) are available for this terminations sheet.")
+                            st.info("No additional columns (B-H) are available for this terminations sheet.")
                         else:
                             detail_records = []
                             for col in detail_columns:
@@ -1143,36 +1143,43 @@ else:
                             st.subheader("Termination Details")
                             st.table(details_df)
 
-                        status_columns = list(working_df.columns[7:10])
-                        signoff_columns = {}
-                        if len(working_df.columns) > 10 and len(status_columns) > 0:
-                            signoff_columns[status_columns[0]] = working_df.columns[10]
-                        if len(working_df.columns) > 11 and len(status_columns) > 1:
-                            signoff_columns[status_columns[1]] = working_df.columns[11]
-                        if not list(status_columns):
-                            st.info("No status columns (H-J) are available for this terminations sheet.")
+                        status_columns = []
+                        first_date_column = working_df.columns[8] if len(working_df.columns) > 8 else None
+                        second_date_column = working_df.columns[9] if len(working_df.columns) > 9 else None
+                        third_status_column = working_df.columns[10] if len(working_df.columns) > 10 else None
+                        if first_date_column:
+                            status_columns.append(first_date_column)
+                        if second_date_column:
+                            status_columns.append(second_date_column)
+                        if third_status_column:
+                            status_columns.append(third_status_column)
+                        date_only_columns = {col for col in [first_date_column, second_date_column] if col}
+                        first_signoff_column = working_df.columns[11] if len(working_df.columns) > 11 else None
+                        second_signoff_column = working_df.columns[12] if len(working_df.columns) > 12 else None
+                        if not status_columns:
+                            st.info("No status columns (I-K) are available for this terminations sheet.")
                         else:
                             status_data = []
                             for col in status_columns:
                                 raw_value = row.get(col, "")
                                 if pd.isna(raw_value):
                                     value = ""
+                                elif col in date_only_columns:
+                                    parsed_value = pd.to_datetime(raw_value, errors="coerce")
+                                    value = parsed_value.strftime("%Y-%m-%d") if pd.notna(parsed_value) else str(raw_value).strip()
                                 else:
                                     parsed_value = pd.to_datetime(raw_value, errors="coerce")
-                                    if pd.notna(parsed_value):
-                                        value = parsed_value.strftime("%Y-%m-%d")
-                                    else:
-                                        value = str(raw_value).strip()
+                                    value = parsed_value.strftime("%Y-%m-%d") if pd.notna(parsed_value) else str(raw_value).strip()
                                 status_data.append((col, value))
 
                             st.write("")
                             st.subheader("Update Termination Status")
                             updated_values = {}
                             tag_slug = ''.join(ch.lower() if ch.isalnum() else '_' for ch in detail_choice).strip('_') or 'tag'
-                            for idx, (col, current_value) in enumerate(status_data):
+                            for col, current_value in status_data:
                                 label = col if col else "Field"
                                 input_key = f"termination_update_{tag_slug}_{''.join(ch.lower() if ch.isalnum() else '_' for ch in (col or 'field')).strip('_')}"
-                                if idx < 2:
+                                if col in date_only_columns:
                                     default_date = None
                                     if current_value:
                                         parsed_date = pd.to_datetime(current_value, errors="coerce")
@@ -1206,15 +1213,18 @@ else:
                                     if updates_to_apply:
                                         user_identifier = _current_user_display_name()
 
-                                        for col in status_columns[:2]:
-                                            signoff_col = signoff_columns.get(col)
-                                            if not signoff_col or col not in updates_to_apply:
-                                                continue
-                                            value = updates_to_apply[col]
+                                        if first_date_column and first_signoff_column and first_date_column in updates_to_apply:
+                                            value = updates_to_apply[first_date_column]
                                             if value is None or (isinstance(value, str) and not value.strip()):
-                                                updates_to_apply[signoff_col] = ""
+                                                updates_to_apply[first_signoff_column] = ""
                                             else:
-                                                updates_to_apply[signoff_col] = user_identifier
+                                                updates_to_apply[first_signoff_column] = user_identifier
+                                        if second_date_column and second_signoff_column and second_date_column in updates_to_apply:
+                                            value = updates_to_apply[second_date_column]
+                                            if value is None or (isinstance(value, str) and not value.strip()):
+                                                updates_to_apply[second_signoff_column] = ""
+                                            else:
+                                                updates_to_apply[second_signoff_column] = user_identifier
 
                                     if not updates_to_apply:
                                         st.warning("Nothing to update for this termination tag.")
