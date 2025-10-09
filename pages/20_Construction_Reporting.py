@@ -586,9 +586,9 @@ else:
                         st.warning("Unable to locate details for the selected cable tag.")
                     else:
                         row = matched_rows.iloc[0]
-                        detail_columns = working_df.columns[1:12]
+                        detail_columns = working_df.columns[1:13]
                         if not list(detail_columns):
-                            st.info("No additional columns (B-L) are available for this cable sheet.")
+                            st.info("No additional columns (B-M) are available for this cable sheet.")
                         else:
                             detail_records = []
                             for col in detail_columns:
@@ -599,15 +599,16 @@ else:
                             st.subheader("Cable Details")
                             st.table(details_df)
 
-                            mirror_columns = list(working_df.columns[12:15])
+                            mirror_columns = list(working_df.columns[13:16])
+                            date_only_column = working_df.columns[14] if len(working_df.columns) > 14 else None
                             mirror_data = []
                             pulled_status_column = mirror_columns[0] if mirror_columns else None
-                            pulled_signoff_column = working_df.columns[15] if len(working_df.columns) > 15 else None
+                            pulled_signoff_column = working_df.columns[16] if len(working_df.columns) > 16 else None
                             for col in mirror_columns:
                                 raw_value = row.get(col, "")
                                 if pd.isna(raw_value):
                                     value = ""
-                                elif col and 'date' in col.lower():
+                                elif (date_only_column and col == date_only_column) or (col and 'date' in col.lower()):
                                     parsed = pd.to_datetime(raw_value, errors='coerce')
                                     value = parsed.strftime('%Y-%m-%d') if pd.notna(parsed) else str(raw_value).strip()
                                 else:
@@ -621,7 +622,8 @@ else:
                             for col, current_value in mirror_data:
                                 label = col if col else "Field"
                                 input_key = f"cable_update_{tag_slug}_{''.join(ch.lower() if ch.isalnum() else '_' for ch in (col or 'field')).strip('_')}"
-                                if label.lower() == 'date pulled':
+                                is_date_field = date_only_column and col == date_only_column
+                                if is_date_field:
                                     default_date = None
                                     if current_value:
                                         parsed_date = pd.to_datetime(current_value, errors='coerce')
