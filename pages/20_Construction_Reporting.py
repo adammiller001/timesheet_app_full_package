@@ -1242,9 +1242,9 @@ else:
                         st.warning("Unable to locate details for the selected gland tag.")
                     else:
                         row = matched_rows.iloc[0]
-                        detail_columns = working_df.columns[1:5]
+                        detail_columns = working_df.columns[1:6]
                         if not list(detail_columns):
-                            st.info("No additional columns (B-E) are available for this glands sheet.")
+                            st.info("No additional columns (B-F) are available for this glands sheet.")
                         else:
                             detail_records = []
                             for col in detail_columns:
@@ -1254,21 +1254,28 @@ else:
                             details_df = pd.DataFrame(detail_records)
                             st.subheader("Gland Details")
                             st.table(details_df)
-                            status_columns_raw = list(working_df.columns[5:10])
-                            status_columns = [col for col in status_columns_raw if '(y)' not in str(col).lower() and 'user' not in str(col).lower()]
-                            source_status_column = next((col for col in status_columns if 'source' in str(col).lower()), None)
-                            destination_status_column = next((col for col in status_columns if 'destination' in str(col).lower()), None)
-                            source_signoff_column = working_df.columns[8] if len(working_df.columns) > 8 else None
-                            destination_signoff_column = working_df.columns[9] if len(working_df.columns) > 9 else None
-                            if not list(status_columns):
-                                st.info("No status columns (F-J) are available for this glands sheet.")
+                            status_columns = []
+                            first_date_column = working_df.columns[6] if len(working_df.columns) > 6 else None
+                            second_date_column = working_df.columns[7] if len(working_df.columns) > 7 else None
+                            third_status_column = working_df.columns[8] if len(working_df.columns) > 8 else None
+                            if first_date_column:
+                                status_columns.append(first_date_column)
+                            if second_date_column:
+                                status_columns.append(second_date_column)
+                            if third_status_column:
+                                status_columns.append(third_status_column)
+                            date_only_columns = {col for col in [first_date_column, second_date_column] if col}
+                            first_signoff_column = working_df.columns[9] if len(working_df.columns) > 9 else None
+                            second_signoff_column = working_df.columns[10] if len(working_df.columns) > 10 else None
+                            if not status_columns:
+                                st.info("No status columns (G-I) are available for this glands sheet.")
                             else:
                                 status_data = []
                                 for col in status_columns:
                                     raw_value = row.get(col, "")
                                     if pd.isna(raw_value):
                                         value = ""
-                                    elif col and 'date' in col.lower():
+                                    elif col in date_only_columns:
                                         parsed = pd.to_datetime(raw_value, errors='coerce')
                                         value = parsed.strftime('%Y-%m-%d') if pd.notna(parsed) else str(raw_value).strip()
                                     else:
@@ -1282,7 +1289,7 @@ else:
                                 for col, current_value in status_data:
                                     label = col if col else "Field"
                                     input_key = f"gland_update_{tag_slug}_{''.join(ch.lower() if ch.isalnum() else '_' for ch in (col or 'field')).strip('_')}"
-                                    if label and 'date' in label.lower():
+                                    if col in date_only_columns:
                                         default_date = None
                                         if current_value:
                                             parsed_date = pd.to_datetime(current_value, errors='coerce')
@@ -1316,18 +1323,18 @@ else:
                                         if updates_to_apply:
                                             user_identifier = _current_user_display_name()
 
-                                            if source_status_column and source_signoff_column and source_status_column in updates_to_apply:
-                                                source_value = updates_to_apply[source_status_column]
-                                                if source_value is None or (isinstance(source_value, str) and not source_value.strip()):
-                                                    updates_to_apply[source_signoff_column] = ""
+                                            if first_date_column and first_signoff_column and first_date_column in updates_to_apply:
+                                                first_value = updates_to_apply[first_date_column]
+                                                if first_value is None or (isinstance(first_value, str) and not first_value.strip()):
+                                                    updates_to_apply[first_signoff_column] = ""
                                                 else:
-                                                    updates_to_apply[source_signoff_column] = user_identifier
-                                            if destination_status_column and destination_signoff_column and destination_status_column in updates_to_apply:
-                                                dest_value = updates_to_apply[destination_status_column]
-                                                if dest_value is None or (isinstance(dest_value, str) and not dest_value.strip()):
-                                                    updates_to_apply[destination_signoff_column] = ""
+                                                    updates_to_apply[first_signoff_column] = user_identifier
+                                            if second_date_column and second_signoff_column and second_date_column in updates_to_apply:
+                                                second_value = updates_to_apply[second_date_column]
+                                                if second_value is None or (isinstance(second_value, str) and not second_value.strip()):
+                                                    updates_to_apply[second_signoff_column] = ""
                                                 else:
-                                                    updates_to_apply[destination_signoff_column] = user_identifier
+                                                    updates_to_apply[second_signoff_column] = user_identifier
                                         if not updates_to_apply:
                                             st.warning("Nothing to update for this gland tag.")
                                         else:
