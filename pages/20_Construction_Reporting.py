@@ -55,7 +55,8 @@ CATEGORY_PROGRESS_COLUMN_MAP = {
     "Cable": [13],
     "Glands": [5, 6],
     "Terminations": [7, 8],
-    "Tray": [9, 10],
+    # Tray progress should consider the two date columns L (11) and N (13)
+    "Tray": [11, 13],
     "Equipment": [7],
     "Junction Boxes": [7],
     "EHT": [11, 13],
@@ -494,7 +495,8 @@ else:
             elif normalized_category == "terminations":
                 status_cols = list(working_df_options.columns[7:9])
             elif normalized_category == "tray":
-                status_cols = list(working_df_options.columns[9:14])
+                # Tray status now references columns K–O (indices 10–14)
+                status_cols = list(working_df_options.columns[10:15])
             elif normalized_category == "junction boxes":
                 status_cols = [working_df_options.columns[7]] if len(working_df_options.columns) > 7 else []
             elif normalized_category == "eht rtds":
@@ -688,9 +690,10 @@ else:
                         st.warning("Unable to locate details for the selected tray tag.")
                     else:
                         row = matched_rows.iloc[0]
-                        detail_columns = working_df.columns[1:9]
+                        # Tray Details now reference columns B–J (indices 1–9)
+                        detail_columns = working_df.columns[1:10]
                         if not list(detail_columns):
-                            st.info("No additional columns (B-I) are available for this tray sheet.")
+                            st.info("No additional columns (B-J) are available for this tray sheet.")
                         else:
                             detail_records = []
                             for col in detail_columns:
@@ -700,17 +703,24 @@ else:
                             details_df = pd.DataFrame(detail_records)
                             st.subheader("Tray Details")
                             st.table(details_df)
-                            signoff_column = working_df.columns[14] if len(working_df.columns) > 14 else None
-                            status_columns = list(working_df.columns[9:14])
+                            # Username signoffs: P (index 15) for L, O (index 14) for N
+                            signoff_l_column = working_df.columns[15] if len(working_df.columns) > 15 else None
+                            signoff_n_column = working_df.columns[14] if len(working_df.columns) > 14 else None
+                            # Update Tray Status now references columns K–O (indices 10–14)
+                            status_columns = list(working_df.columns[10:15])
                             if not list(status_columns):
-                                st.info("No status columns (J-L) are available for this tray sheet.")
+                                st.info("No status columns (K-O) are available for this tray sheet.")
                             else:
                                 status_data = []
+                                # Columns L (index 11) and N (index 13) are dates only
+                                l_col = working_df.columns[11] if len(working_df.columns) > 11 else None
+                                n_col = working_df.columns[13] if len(working_df.columns) > 13 else None
+                                date_only_cols = {c for c in (l_col, n_col) if c is not None}
                                 for col in status_columns:
                                     raw_value = row.get(col, "")
                                     if pd.isna(raw_value):
                                         value = ""
-                                    elif col and 'date' in col.lower():
+                                    elif (col in date_only_cols) or (col and 'date' in col.lower()):
                                         parsed = pd.to_datetime(raw_value, errors='coerce')
                                         value = parsed.strftime('%Y-%m-%d') if pd.notna(parsed) else str(raw_value).strip()
                                     else:
@@ -723,7 +733,8 @@ else:
                                 for col, current_value in status_data:
                                     label = col if col else "Field"
                                     input_key = f"tray_update_{tag_slug}_{''.join(ch.lower() if ch.isalnum() else '_' for ch in (col or 'field')).strip('_')}"
-                                    if label and 'date' in label.lower():
+                                    # Enforce date inputs for L and N regardless of label text
+                                    if (col in date_only_cols) or (label and 'date' in label.lower()):
                                         default_date = None
                                         if current_value:
                                             parsed_date = pd.to_datetime(current_value, errors='coerce')
@@ -752,20 +763,25 @@ else:
                                                 updates_to_apply[col] = value.strftime('%Y-%m-%d')
                                             else:
                                                 updates_to_apply[col] = value
-                                        if updates_to_apply and signoff_column:
+                                        # Apply username signoffs based on entries for L and N
+                                        if updates_to_apply and (signoff_l_column or signoff_n_column):
                                             user_identifier = _current_user_display_name()
-
-                                            has_value = False
-                                            for col in status_columns:
-                                                if col in updates_to_apply:
-                                                    val = updates_to_apply[col]
-                                                    if val is None:
-                                                        continue
-                                                    if isinstance(val, str) and not val.strip():
-                                                        continue
-                                                    has_value = True
-                                                    break
-                                            updates_to_apply[signoff_column] = user_identifier if has_value else ""
+                                            # Determine if L (index 11) has a non-empty update
+                                            if l_col and signoff_l_column:
+                                                if l_col in updates_to_apply:
+                                                    l_val = updates_to_apply[l_col]
+                                                    if l_val is None or (isinstance(l_val, str) and not l_val.strip()):
+                                                        updates_to_apply[signoff_l_column] = ""
+                                                    else:
+                                                        updates_to_apply[signoff_l_column] = user_identifier
+                                            # Determine if N (index 13) has a non-empty update
+                                            if n_col and signoff_n_column:
+                                                if n_col in updates_to_apply:
+                                                    n_val = updates_to_apply[n_col]
+                                                    if n_val is None or (isinstance(n_val, str) and not n_val.strip()):
+                                                        updates_to_apply[signoff_n_column] = ""
+                                                    else:
+                                                        updates_to_apply[signoff_n_column] = user_identifier
                                         if not updates_to_apply:
                                             st.warning("Nothing to update for this tray tag.")
                                         else:
