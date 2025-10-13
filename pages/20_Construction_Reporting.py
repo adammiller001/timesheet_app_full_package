@@ -508,7 +508,8 @@ else:
             elif normalized_category == "eht":
                 status_cols = list(working_df_options.columns[10:14])
             elif normalized_category == "equipment":
-                status_cols = [working_df_options.columns[7]] if len(working_df_options.columns) > 7 else []
+                # Equipment status now references columns I–J (indices 8–9)
+                status_cols = list(working_df_options.columns[8:10])
             filtered_tags = []
             seen_tags = set()
             for _, entry_row in working_df_options.iterrows():
@@ -1048,9 +1049,10 @@ else:
                         st.warning("Unable to locate details for the selected equipment tag.")
                     else:
                         row = matched_rows.iloc[0]
-                        detail_columns = working_df.columns[1:7]
+                        # Equipment Details now reference columns B–H (indices 1–7)
+                        detail_columns = working_df.columns[1:8]
                         if not list(detail_columns):
-                            st.info("No additional columns (B-G) are available for this equipment sheet.")
+                            st.info("No additional columns (B-H) are available for this equipment sheet.")
                         else:
                             detail_records = []
                             for col in detail_columns:
@@ -1060,10 +1062,12 @@ else:
                             details_df = pd.DataFrame(detail_records)
                             st.subheader("Equipment Details")
                             st.table(details_df)
-                            signoff_column = working_df.columns[9] if len(working_df.columns) > 9 else None
-                            status_columns = list(working_df.columns[7:9])
+                            # Username signoff for equipment is column K (index 10)
+                            signoff_column = working_df.columns[10] if len(working_df.columns) > 10 else None
+                            # Update Equipment Status references columns I–J (indices 8–9)
+                            status_columns = list(working_df.columns[8:10])
                             if not list(status_columns):
-                                st.info("No status columns (H-I) are available for this equipment sheet.")
+                                st.info("No status columns (I-J) are available for this equipment sheet.")
                             else:
                                 status_data = []
                                 for col in status_columns:
