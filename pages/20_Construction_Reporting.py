@@ -703,9 +703,9 @@ else:
                             details_df = pd.DataFrame(detail_records)
                             st.subheader("Tray Details")
                             st.table(details_df)
-                            # Username signoffs: P (index 15) for L, O (index 14) for N
+                            # Username signoffs: P (index 15) for L, Q (index 16) for N
                             signoff_l_column = working_df.columns[15] if len(working_df.columns) > 15 else None
-                            signoff_n_column = working_df.columns[14] if len(working_df.columns) > 14 else None
+                            signoff_n_column = working_df.columns[16] if len(working_df.columns) > 16 else None
                             # Update Tray Status now references columns K–O (indices 10–14)
                             status_columns = list(working_df.columns[10:15])
                             if not list(status_columns):
