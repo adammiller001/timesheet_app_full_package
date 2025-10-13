@@ -508,8 +508,8 @@ else:
             elif normalized_category == "eht":
                 status_cols = list(working_df_options.columns[10:14])
             elif normalized_category == "equipment":
-                # Equipment status now references columns I–J (indices 8–9)
-                status_cols = list(working_df_options.columns[8:10])
+                # Incomplete filtering: treat any value in I (index 8) as complete
+                status_cols = [working_df_options.columns[8]] if len(working_df_options.columns) > 8 else []
             filtered_tags = []
             seen_tags = set()
             for _, entry_row in working_df_options.iterrows():
