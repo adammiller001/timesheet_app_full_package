@@ -1066,6 +1066,8 @@ else:
                             signoff_column = working_df.columns[10] if len(working_df.columns) > 10 else None
                             # Update Equipment Status references columns I–J (indices 8–9)
                             status_columns = list(working_df.columns[8:10])
+                            # Track column I explicitly for signoff logic
+                            i_col = working_df.columns[8] if len(working_df.columns) > 8 else None
                             if not list(status_columns):
                                 st.info("No status columns (I-J) are available for this equipment sheet.")
                             else:
@@ -1116,15 +1118,20 @@ else:
                                                 updates_to_apply[col] = value.strftime('%Y-%m-%d')
                                             else:
                                                 updates_to_apply[col] = value
-                                        if updates_to_apply and signoff_column and status_columns:
-                                            date_col = status_columns[0]
-                                            if date_col in updates_to_apply:
+                                        # Normalize None to empty strings to avoid writing Python None
+                                        for col_key, val in list(updates_to_apply.items()):
+                                            if val is None:
+                                                updates_to_apply[col_key] = ""
+                                        # Auto-clear/set signoff K based on column I value
+                                        if updates_to_apply and signoff_column and i_col:
+                                            if i_col in updates_to_apply:
                                                 user_identifier = _current_user_display_name()
-                                                date_value = updates_to_apply[date_col]
-                                                if date_value is None or (isinstance(date_value, str) and not date_value.strip()):
-                                                    updates_to_apply[signoff_column] = ""
+                                                i_value = updates_to_apply[i_col]
+                                                if isinstance(i_value, str):
+                                                    i_value_stripped = i_value.strip()
                                                 else:
-                                                    updates_to_apply[signoff_column] = user_identifier
+                                                    i_value_stripped = str(i_value).strip() if i_value is not None else ""
+                                                updates_to_apply[signoff_column] = user_identifier if i_value_stripped else ""
                                         if not updates_to_apply:
                                             st.warning("Nothing to update for this equipment tag.")
                                         else:
