@@ -56,6 +56,8 @@ class GoogleSheetsManager:
             'worksheets': []
         }
         self._data_cache: Dict[str, Tuple[float, pd.DataFrame]] = {}
+        self._cache_ttl = 60
+        self._force_refresh_cooldown = 5
 
     # ------------------------------------------------------------------
     # Credential / client helpers
@@ -201,9 +203,14 @@ class GoogleSheetsManager:
     def read_worksheet(self, worksheet_name: str, spreadsheet_id: Optional[str] = None, force_refresh: bool = False) -> pd.DataFrame:
         """Read data from a worksheet and return as DataFrame"""
         cache_key = worksheet_name
-        if not force_refresh:
-            cache_entry = self._data_cache.get(cache_key)
-            if cache_entry and (time.time() - cache_entry[0]) < 60:
+        cache_entry = self._data_cache.get(cache_key)
+        now = time.time()
+
+        if force_refresh:
+            if cache_entry and (now - cache_entry[0]) < self._force_refresh_cooldown:
+                return cache_entry[1].copy()
+        else:
+            if cache_entry and (now - cache_entry[0]) < self._cache_ttl:
                 return cache_entry[1].copy()
 
         worksheet, actual_name = self.find_worksheet([worksheet_name], spreadsheet_id)
