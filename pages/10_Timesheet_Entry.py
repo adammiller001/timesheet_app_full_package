@@ -1549,7 +1549,8 @@ if user_type.upper() == "ADMIN":
 
                 def _write_subtotal_formulas(target_row):
                     ws.cell(row=target_row, column=10, value=f"=H{target_row}+I{target_row}")
-                    ws.cell(row=target_row, column=16, value=f"=O{target_row}+N{target_row}+I{target_row}+H{target_row}")
+                    ws.cell(row=target_row, column=16, value=f"=O{target_row}+N{target_row}")
+                    ws.cell(row=target_row, column=17, value=f"=P{target_row}+J{target_row}")
 
                 emp_name = str(emp_entries[0].get('Name', ''))
 
