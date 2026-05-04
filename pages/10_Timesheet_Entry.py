@@ -1466,6 +1466,25 @@ if user_type.upper() == "ADMIN":
 
             def _get_employee_truck(emp_row):
                 """Return the truck/unit value from Employee List column F, with header fallbacks."""
+                def _clean_truck_value(raw_value):
+                    if raw_value is None:
+                        return ""
+                    try:
+                        if pd.isna(raw_value):
+                            return ""
+                    except Exception:
+                        pass
+                    if isinstance(raw_value, (int, float)) and not isinstance(raw_value, bool):
+                        return str(int(raw_value)) if float(raw_value).is_integer() else str(raw_value).strip()
+                    text = str(raw_value).strip()
+                    if text.lower() == "nan":
+                        return ""
+                    if text.endswith(".0"):
+                        number_text = text[:-2]
+                        if number_text.isdigit():
+                            return number_text
+                    return text
+
                 if emp_row is None:
                     return ""
                 for col_name in ("Truck", "Truck #", "Truck Number", "Unit", "Unit #", "Vehicle", "Vehicle #"):
@@ -1473,13 +1492,15 @@ if user_type.upper() == "ADMIN":
                         value = emp_row.get(col_name, "")
                     except Exception:
                         value = ""
-                    if value is not None and str(value).strip() and str(value).strip().lower() != "nan":
-                        return str(value).strip()
+                    truck_value = _clean_truck_value(value)
+                    if truck_value:
+                        return truck_value
                 try:
                     if len(emp_row.index) >= 6:
                         value = emp_row.iloc[5]
-                        if value is not None and str(value).strip() and str(value).strip().lower() != "nan":
-                            return str(value).strip()
+                        truck_value = _clean_truck_value(value)
+                        if truck_value:
+                            return truck_value
                 except Exception:
                     pass
                 return ""
