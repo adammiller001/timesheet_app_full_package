@@ -123,6 +123,9 @@ def authenticate_user(email, force_refresh=False):
         if actual_col and actual_col in users_df.columns:
             raw_user_type = users_df.loc[user_row.index, actual_col].iloc[0]
             break
+    else:
+        if len(users_df.columns) >= 4:
+            raw_user_type = users_df.loc[user_row.index, users_df.columns[3]].iloc[0]
 
     user_type_clean = str(raw_user_type).strip() if raw_user_type is not None else ""
     user_type_upper = user_type_clean.upper()
