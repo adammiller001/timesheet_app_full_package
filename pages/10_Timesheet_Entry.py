@@ -7,6 +7,7 @@ import os
 import re
 import tempfile
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 import openpyxl.styles
 from copy import copy
@@ -1546,6 +1547,10 @@ if user_type.upper() == "ADMIN":
                     font.color = "FF000000"
                     cell.font = font
 
+                def _write_subtotal_formulas(target_row):
+                    ws.cell(row=target_row, column=10, value=f"=H{target_row}+I{target_row}")
+                    ws.cell(row=target_row, column=16, value=f"=O{target_row}+N{target_row}+I{target_row}+H{target_row}")
+
                 emp_name = str(emp_entries[0].get('Name', ''))
 
                 # Base employee info (columns A-D)
@@ -1582,6 +1587,7 @@ if user_type.upper() == "ADMIN":
                     ws.cell(row=row_num, column=7, value=job_display)  # G: Job Number - Area - Description
                     ws.cell(row=row_num, column=8, value=float(entry.get('RT Hours', 0) or 0))  # H: RT
                     ws.cell(row=row_num, column=9, value=float(entry.get('OT Hours', 0) or 0))   # I: OT
+                    _write_subtotal_formulas(row_num)
 
                 # Second entry goes in columns K-O
                 if len(emp_entries) >= 2:
@@ -1596,6 +1602,7 @@ if user_type.upper() == "ADMIN":
                     ws.cell(row=row_num, column=13, value=job_display_2)  # M: Job Number - Area - Description
                     ws.cell(row=row_num, column=14, value=float(entry.get('RT Hours', 0) or 0))  # N: RT
                     ws.cell(row=row_num, column=15, value=float(entry.get('OT Hours', 0) or 0))   # O: OT
+                    _write_subtotal_formulas(row_num)
 
                 # Return number of rows used (1 if 1-2 entries, more if 3+ entries)
                 rows_used = 1
@@ -1619,6 +1626,7 @@ if user_type.upper() == "ADMIN":
                             ws.cell(row=current_extra_row, column=7, value=job_display)
                             ws.cell(row=current_extra_row, column=8, value=float(entry.get('RT Hours', 0) or 0))
                             ws.cell(row=current_extra_row, column=9, value=float(entry.get('OT Hours', 0) or 0))
+                            _write_subtotal_formulas(current_extra_row)
 
                         else:  # Second entry of row (columns K-O)
                             cost_code = str(entry.get('Cost Code', ''))
@@ -1630,6 +1638,7 @@ if user_type.upper() == "ADMIN":
                             ws.cell(row=current_extra_row, column=13, value=job_display)
                             ws.cell(row=current_extra_row, column=14, value=float(entry.get('RT Hours', 0) or 0))
                             ws.cell(row=current_extra_row, column=15, value=float(entry.get('OT Hours', 0) or 0))
+                            _write_subtotal_formulas(current_extra_row)
                             current_extra_row += 1
 
                         if i % 2 == 0 and i == len(additional_entries) - 1:
@@ -1758,6 +1767,20 @@ if user_type.upper() == "ADMIN":
                                 for row_num in range(32, 262):
                                     if row_num not in used_direct_rows:
                                         ws.row_dimensions[row_num].hidden = True
+
+                                used_employee_rows = used_indirect_rows + used_direct_rows
+                                has_second_entry_data = any(
+                                    any(ws.cell(row=row_num, column=col_num).value not in (None, '') for col_num in range(11, 16))
+                                    for row_num in used_employee_rows
+                                )
+                                for col_num in range(11, 18):
+                                    ws.column_dimensions[get_column_letter(col_num)].hidden = not has_second_entry_data
+
+                                wb.active = wb.index(ws)
+                                ws.sheet_view.topLeftCell = "A1"
+                                if ws.sheet_view.selection:
+                                    ws.sheet_view.selection[0].activeCell = "A1"
+                                    ws.sheet_view.selection[0].sqref = "A1"
 
                                 # Add job summaries starting at row 264
                                 current_summary_row = 264
