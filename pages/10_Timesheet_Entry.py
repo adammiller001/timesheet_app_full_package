@@ -1464,6 +1464,26 @@ if user_type.upper() == "ADMIN":
 
                 return prepared_entries
 
+            def _get_employee_truck(emp_row):
+                """Return the truck/unit value from Employee List column F, with header fallbacks."""
+                if emp_row is None:
+                    return ""
+                for col_name in ("Truck", "Truck #", "Truck Number", "Unit", "Unit #", "Vehicle", "Vehicle #"):
+                    try:
+                        value = emp_row.get(col_name, "")
+                    except Exception:
+                        value = ""
+                    if value is not None and str(value).strip() and str(value).strip().lower() != "nan":
+                        return str(value).strip()
+                try:
+                    if len(emp_row.index) >= 6:
+                        value = emp_row.iloc[5]
+                        if value is not None and str(value).strip() and str(value).strip().lower() != "nan":
+                            return str(value).strip()
+                except Exception:
+                    pass
+                return ""
+
             def _write_employee_to_daily_time(ws, emp_entries, row_num, employee_info, cost_code_descriptions):
                 """Write employee data to specific row in Daily Time template"""
                 if not emp_entries:
@@ -1476,6 +1496,7 @@ if user_type.upper() == "ADMIN":
                 trade_class = str(emp_entries[0].get('Trade Class', '') or emp_info.get('override_trade_class', '') or '')
                 ws.cell(row=row_num, column=1, value=emp_name)
                 ws.cell(row=row_num, column=2, value=trade_class)
+                ws.cell(row=row_num, column=3, value=emp_info.get('truck', '') or None)
 
                 rate_values = []
                 for key in ('premium_rate', 'subsistence_rate', 'travel_rate'):
@@ -1533,6 +1554,9 @@ if user_type.upper() == "ADMIN":
                             job_display = f"{entry.get('Job Number', '')} - {str(entry.get('Job Area', '')).zfill(3)} - {entry.get('Description of work', '')}"
 
                             ws.cell(row=current_extra_row, column=1, value=emp_name)
+                            ws.cell(row=current_extra_row, column=2, value=trade_class)
+                            ws.cell(row=current_extra_row, column=3, value=emp_info.get('truck', '') or None)
+                            ws.cell(row=current_extra_row, column=4, value=rate_value or None)
                             ws.cell(row=current_extra_row, column=5, value=cost_desc)
                             ws.cell(row=current_extra_row, column=6, value=cost_code)
                             ws.cell(row=current_extra_row, column=7, value=job_display)
@@ -1601,6 +1625,7 @@ if user_type.upper() == "ADMIN":
                                         employee_info[name] = {
                                             'indirect': str(emp_row.get("Indirect / Direct", "")).strip().upper() == "INDIRECT",
                                             'override_trade_class': str(emp_row.get("Override Trade Class", "") or ""),
+                                            'truck': _get_employee_truck(emp_row),
                                             'premium_rate': str(emp_row.get("Premium Rate", "") or ""),
                                             'subsistence_rate': str(emp_row.get("Subsistence Rate", "") or ""),
                                             'travel_rate': str(emp_row.get("Travel Rate", "") or ""),
@@ -1751,6 +1776,7 @@ if user_type.upper() == "ADMIN":
                                             continue
                                         employee_info[name] = {
                                             'indirect': str(emp_row.get("Indirect / Direct", "")).strip().upper() == "INDIRECT",
+                                            'truck': _get_employee_truck(emp_row),
                                             'premium_rate': str(emp_row.get("Premium Rate", "") or "").strip(),
                                             'subsistence': str(emp_row.get("Subsistence Rate", "") or "").strip(),
                                             'travel_rate': str(emp_row.get("Travel Rate", "") or "").strip(),
