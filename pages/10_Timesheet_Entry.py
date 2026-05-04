@@ -287,7 +287,8 @@ def _prepare_time_data_dataframe(df: Optional[pd.DataFrame]) -> pd.DataFrame:
             df['Date'] = pd.to_datetime(df['Date']).dt.strftime('%Y-%m-%d')
         except Exception:
             df['Date'] = df['Date'].astype(str)
-    df = df.applymap(_normalize_sheet_value)
+    df_map = getattr(df, "map", None)
+    df = df_map(_normalize_sheet_value) if df_map else df.applymap(_normalize_sheet_value)
     return df
 
 def _load_time_data_from_excel() -> pd.DataFrame:
@@ -381,7 +382,8 @@ def _sync_time_data_to_google(new_data_df: pd.DataFrame) -> bool:
         and "google_sheets_id" in st.secrets
         and st.secrets["google_sheets_id"]
     ):
-        return True
+        st.error("Shared Google Sheets storage is not configured. Time entries were not saved.")
+        return False
 
     try:
         sheet_id = st.secrets["google_sheets_id"]
@@ -461,7 +463,8 @@ def _replace_time_data_in_google(updated_df: pd.DataFrame) -> bool:
         and "google_sheets_id" in st.secrets
         and st.secrets["google_sheets_id"]
     ):
-        return True
+        st.error("Shared Google Sheets storage is not configured. Time entries were not saved.")
+        return False
 
     try:
         sheet_id = st.secrets["google_sheets_id"]
@@ -563,7 +566,7 @@ def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def save_to_session(new_rows):
-    """Save new rows to session, then persist entire dataset to Excel/Google when configured"""
+    """Save new rows to shared Google Sheets, then refresh this user's page cache."""
     try:
         if not new_rows:
             return False
@@ -592,22 +595,17 @@ def save_to_session(new_rows):
         updated_df = pd.concat([combined_source, new_data_df], ignore_index=True)
         updated_df = _enrich_with_employee_details(updated_df)
         updated_df = _prepare_time_data_dataframe(updated_df)
+
+        google_synced = _sync_time_data_to_google(new_data_df)
+        if not google_synced:
+            google_synced = _replace_time_data_in_google(updated_df)
+        if not google_synced:
+            st.error("Could not update shared Google Sheets Time Data. No local-only entry was saved.")
+            return False
+
         st.session_state.session_time_data = updated_df
-
-        excel_synced = _write_time_data_to_excel(updated_df)
-        if not excel_synced:
-            st.warning("Added lines locally, but could not update local Time Data worksheet.")
-
-        google_synced = True
-        if GOOGLE_CONFIGURED and HAVE_GOOGLE_SHEETS:
-            google_synced = _sync_time_data_to_google(new_data_df)
-            if not google_synced:
-                google_synced = _replace_time_data_in_google(updated_df)
-            if not google_synced:
-                st.warning("Added lines locally, but could not update Google Sheets Time Data.")
-
         st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
-        return excel_synced or google_synced
+        return True
     except Exception as e:
         st.error(f"Error saving to Time Data: {e}")
         return False
@@ -774,7 +772,7 @@ date_val = st.date_input("Date", value=pd.Timestamp.today().date(), format="YYYY
 if "form_counter" not in st.session_state:
     st.session_state.form_counter = 0
 
-# Initialize session-based Time Data storage
+# Initialize this user's page cache from shared Time Data storage
 if "session_time_data" not in st.session_state:
     # Load initial data with Google Sheets support
     try:
@@ -1248,17 +1246,14 @@ try:
 
                             if indices_to_delete:
                                 updated_data = total_data.drop(index=indices_to_delete).reset_index(drop=True)
-                                excel_synced = _write_time_data_to_excel(updated_data)
                                 synced = _replace_time_data_in_google(updated_data)
-                                if not excel_synced:
-                                    st.warning("Deleted entries locally, but could not update local Time Data worksheet.")
                                 if not synced:
-                                    st.warning("Deleted entries locally, but external Time Data storage could not be updated.")
-
-                                st.session_state.session_time_data = updated_data
-                                st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
-                                st.success(f"Deleted {len(indices_to_delete)} selected entries from {date_val}.")
-                                st.rerun()
+                                    st.error("Could not update shared Google Sheets Time Data. No local-only deletion was saved.")
+                                else:
+                                    st.session_state.session_time_data = updated_data
+                                    st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
+                                    st.success(f"Deleted {len(indices_to_delete)} selected entries from {date_val}.")
+                                    st.rerun()
                             else:
                                 st.error("No valid entries selected for deletion.")
 
@@ -1280,17 +1275,14 @@ try:
                                 pd.to_datetime(total_data["Date"]).dt.strftime("%Y-%m-%d") != selected_date_str
                             ].reset_index(drop=True) if not total_data.empty else pd.DataFrame()
 
-                            excel_synced = _write_time_data_to_excel(remaining_data)
                             synced = _replace_time_data_in_google(remaining_data)
-                            if not excel_synced:
-                                st.warning("Deleted entries locally, but could not update local Time Data worksheet.")
                             if not synced:
-                                st.warning("Deleted entries locally, but external Time Data storage could not be updated.")
-
-                            st.session_state.session_time_data = remaining_data
-                            st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
-                            st.success(f"Deleted {filtered_entries} entries from {date_val}.")
-                            st.rerun()
+                                st.error("Could not update shared Google Sheets Time Data. No local-only deletion was saved.")
+                            else:
+                                st.session_state.session_time_data = remaining_data
+                                st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
+                                st.success(f"Deleted {filtered_entries} entries from {date_val}.")
+                                st.rerun()
 
                         except Exception as e:
                             st.error(f"Could not delete entries: {e}")
