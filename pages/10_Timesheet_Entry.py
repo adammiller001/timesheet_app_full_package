@@ -274,6 +274,23 @@ def get_available_worksheets(_: object = None):
             except Exception:
                 continue
     return titles
+
+def _normalize_job_area_value(value, blank_value='') -> str:
+    if value is None:
+        return blank_value
+    try:
+        if pd.isna(value):
+            return blank_value
+    except Exception:
+        pass
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none"}:
+        return blank_value
+    match = re.search(r"\d+", text)
+    if match:
+        return match.group(0).zfill(3)
+    return text
+
 def _prepare_time_data_dataframe(df: Optional[pd.DataFrame]) -> pd.DataFrame:
     if df is None or df.empty:
         df = pd.DataFrame(columns=TIME_DATA_COLUMNS)
@@ -291,6 +308,8 @@ def _prepare_time_data_dataframe(df: Optional[pd.DataFrame]) -> pd.DataFrame:
             df['Date'] = df['Date'].astype(str)
     df_map = getattr(df, "map", None)
     df = df_map(_normalize_sheet_value) if df_map else df.applymap(_normalize_sheet_value)
+    if 'Job Area' in df.columns:
+        df['Job Area'] = df['Job Area'].apply(_normalize_job_area_value)
     return df
 
 def _load_time_data_from_excel() -> pd.DataFrame:
@@ -370,7 +389,10 @@ def _build_sheet_row(row_dict, headers):
     normalized = []
     for header in headers:
         value = row_dict.get(header)
-        normalized.append(_normalize_sheet_value(value))
+        if ''.join(ch for ch in str(header).strip().lower() if ch.isalnum()) == "jobarea":
+            normalized.append(_normalize_job_area_value(value))
+        else:
+            normalized.append(_normalize_sheet_value(value))
     return normalized
 
 
@@ -403,6 +425,8 @@ def _sync_time_data_to_google(new_data_df: pd.DataFrame) -> bool:
 
         df_to_sync.columns = [str(col).strip() for col in df_to_sync.columns]
         df_to_sync = df_to_sync[[col for col in df_to_sync.columns if col]]
+        if "Job Area" in df_to_sync.columns:
+            df_to_sync["Job Area"] = df_to_sync["Job Area"].apply(_normalize_job_area_value)
         df_to_sync = df_to_sync.where(pd.notnull(df_to_sync), None)
 
         header_values = worksheet.row_values(1)
@@ -417,7 +441,7 @@ def _sync_time_data_to_google(new_data_df: pd.DataFrame) -> bool:
                     break
 
         if not headers:
-            manager.write_worksheet(actual_title, df_to_sync, sheet_id)
+            manager.write_worksheet(actual_title, df_to_sync, sheet_id, value_input_option="RAW")
             return True
 
         def _norm(col_name: str) -> str:
@@ -436,7 +460,9 @@ def _sync_time_data_to_google(new_data_df: pd.DataFrame) -> bool:
             for header in headers:
                 source_col = df_lookup.get(_norm(header))
                 value = row[source_col] if source_col else None
-                if pd.isna(value):
+                if _norm(header) == "jobarea":
+                    value = _normalize_job_area_value(value)
+                elif pd.isna(value):
                     value = None
                 elif isinstance(value, pd.Timestamp):
                     value = value.strftime("%Y-%m-%d")
@@ -451,7 +477,7 @@ def _sync_time_data_to_google(new_data_df: pd.DataFrame) -> bool:
         if not rows_to_append:
             return True
 
-        return manager.append_rows(actual_title, rows_to_append, sheet_id)
+        return manager.append_rows(actual_title, rows_to_append, sheet_id, value_input_option="RAW")
 
     except Exception as e:
         st.error(f"Failed to sync Time Data to Google Sheets: {e}")
@@ -497,7 +523,7 @@ def _replace_time_data_in_google(updated_df: pd.DataFrame) -> bool:
                     df_to_write[header] = ''
             df_to_write = df_to_write[headers]
 
-        success = manager.write_worksheet(actual_title, df_to_write, sheet_id)
+        success = manager.write_worksheet(actual_title, df_to_write, sheet_id, value_input_option="RAW")
         return bool(success)
     except Exception as e:
         st.error(f"Failed to update Time Data in Google Sheets: {e}")
@@ -919,14 +945,7 @@ def _find_col(df: pd.DataFrame, candidates):
 
 def _pad_area(val: object) -> str:
     """Ensure area is 3 digits with zero padding"""
-    s = str(val).strip()
-    if not s or s.lower() == "nan":
-        return "000"
-    m = re.search(r"\d+", s)
-    if m:
-        d = m.group(0)
-        return d.zfill(3)
-    return s
+    return _normalize_job_area_value(val, blank_value="000")
 
 def _is_truthy(value) -> bool:
     """Return True if the value represents an affirmative flag."""
@@ -1297,7 +1316,7 @@ if add_line_clicked:
 
                 new_row = {
                     "Job Number": job_num,
-                    "Job Area": job_area,
+                    "Job Area": _normalize_job_area_value(job_area, blank_value="000"),
                     "Date": date_str,
                     "Name": emp_name,
                     "Trade Class": emp_data['trade'],

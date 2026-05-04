@@ -102,7 +102,10 @@ def only_active_cost_codes(df: pd.DataFrame) -> pd.DataFrame:
 
 def pad_job_area(value) -> str:
     s = str(value).strip()
-    return f"{int(s):03d}" if s.isdigit() else s
+    if not s or s.lower() in {"nan", "none"}:
+        return ""
+    digits = "".join(ch for ch in s.split(".", 1)[0] if ch.isdigit())
+    return digits.zfill(3) if digits else s
 
 
 def get_time_data(_: str | None = None, force_refresh: bool = False) -> pd.DataFrame:

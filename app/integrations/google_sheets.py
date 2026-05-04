@@ -333,7 +333,13 @@ class GoogleSheetsManager:
             st.error(f"Failed to append to worksheet '{worksheet_name}': {exc}")
             return False
 
-    def write_worksheet(self, worksheet_name: str, data: pd.DataFrame, spreadsheet_id: Optional[str] = None) -> bool:
+    def write_worksheet(
+        self,
+        worksheet_name: str,
+        data: pd.DataFrame,
+        spreadsheet_id: Optional[str] = None,
+        value_input_option: str = "USER_ENTERED",
+    ) -> bool:
         """Write DataFrame to a worksheet"""
         worksheet, actual_name = self.find_worksheet([worksheet_name], spreadsheet_id)
         if not worksheet:
@@ -357,7 +363,7 @@ class GoogleSheetsManager:
         if gspread is not None and hasattr(worksheet, "clear"):
             try:
                 worksheet.clear()
-                worksheet.update(values)
+                worksheet.update(values, value_input_option=value_input_option)
                 cache_key = actual_name or worksheet_name
                 self._data_cache[cache_key] = (time.time(), data.copy())
                 return True
@@ -378,7 +384,7 @@ class GoogleSheetsManager:
         try:
             clear_resp = session.post(f"{base}!A1:clear")
             clear_resp.raise_for_status()
-            update_params = {"valueInputOption": "USER_ENTERED"}
+            update_params = {"valueInputOption": value_input_option}
             update_resp = session.put(f"{base}!A1", params=update_params, json={"values": values})
             update_resp.raise_for_status()
             cache_key = actual_name or worksheet_name
