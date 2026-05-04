@@ -9,6 +9,7 @@ import tempfile
 from openpyxl import load_workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 import openpyxl.styles
+from copy import copy
 from shutil import copyfile
 from time import sleep
 import time
@@ -1539,6 +1540,12 @@ if user_type.upper() == "ADMIN":
                 if not emp_entries:
                     return 0
 
+                def _write_truck_cell(target_row, truck_value):
+                    cell = ws.cell(row=target_row, column=3, value=truck_value or None)
+                    font = copy(cell.font)
+                    font.color = "FF000000"
+                    cell.font = font
+
                 emp_name = str(emp_entries[0].get('Name', ''))
 
                 # Base employee info (columns A-D)
@@ -1546,7 +1553,7 @@ if user_type.upper() == "ADMIN":
                 trade_class = str(emp_entries[0].get('Trade Class', '') or emp_info.get('override_trade_class', '') or '')
                 ws.cell(row=row_num, column=1, value=emp_name)
                 ws.cell(row=row_num, column=2, value=trade_class)
-                ws.cell(row=row_num, column=3, value=emp_info.get('truck', '') or None)
+                _write_truck_cell(row_num, emp_info.get('truck', ''))
 
                 rate_values = []
                 for key in ('premium_rate', 'subsistence_rate', 'travel_rate'):
@@ -1605,7 +1612,7 @@ if user_type.upper() == "ADMIN":
 
                             ws.cell(row=current_extra_row, column=1, value=emp_name)
                             ws.cell(row=current_extra_row, column=2, value=trade_class)
-                            ws.cell(row=current_extra_row, column=3, value=emp_info.get('truck', '') or None)
+                            _write_truck_cell(current_extra_row, emp_info.get('truck', ''))
                             ws.cell(row=current_extra_row, column=4, value=rate_value or None)
                             ws.cell(row=current_extra_row, column=5, value=cost_desc)
                             ws.cell(row=current_extra_row, column=6, value=cost_code)
