@@ -516,6 +516,32 @@ def _is_blank_value(val) -> bool:
     text = str(val).strip()
     return text == '' or text.lower() in {"nan", "none"}
 
+def _normalize_employee_key(name) -> str:
+    return ''.join(ch for ch in str(name or '').upper() if ch.isalnum())
+
+def _lookup_employee_details(info: dict, name: str) -> dict:
+    if not info:
+        return {}
+    details = info.get(name)
+    if details:
+        return details
+    normalized_name = _normalize_employee_key(name)
+    if not normalized_name:
+        return {}
+    normalized_info = {
+        _normalize_employee_key(employee_name): employee_details
+        for employee_name, employee_details in info.items()
+        if _normalize_employee_key(employee_name)
+    }
+    if normalized_name in normalized_info:
+        return normalized_info[normalized_name]
+    matches = [
+        employee_details
+        for employee_name, employee_details in normalized_info.items()
+        if normalized_name in employee_name or employee_name in normalized_name
+    ]
+    return matches[0] if len(matches) == 1 else {}
+
 def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
     """Fill Night Shift and rate columns from Employee List when missing."""
     if df is None or df.empty:
@@ -553,7 +579,7 @@ def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
             name = str(row.get("Name", "")).strip()
             if not name:
                 continue
-            details = info.get(name)
+            details = _lookup_employee_details(info, name)
             if not details:
                 continue
             df.at[idx, "Night Shift"] = details.get("night", "") or ""
@@ -1464,6 +1490,9 @@ if user_type.upper() == "ADMIN":
 
                 return prepared_entries
 
+            def _employee_info_lookup(employee_info, emp_name):
+                return _lookup_employee_details(employee_info, emp_name)
+
             def _get_employee_truck(emp_row):
                 """Return the truck/unit value from Employee List column F, with header fallbacks."""
                 def _clean_truck_value(raw_value):
@@ -1513,7 +1542,7 @@ if user_type.upper() == "ADMIN":
                 emp_name = str(emp_entries[0].get('Name', ''))
 
                 # Base employee info (columns A-D)
-                emp_info = employee_info.get(emp_name, {})
+                emp_info = _employee_info_lookup(employee_info, emp_name)
                 trade_class = str(emp_entries[0].get('Trade Class', '') or emp_info.get('override_trade_class', '') or '')
                 ws.cell(row=row_num, column=1, value=emp_name)
                 ws.cell(row=row_num, column=2, value=trade_class)
@@ -1676,7 +1705,7 @@ if user_type.upper() == "ADMIN":
                                 direct_employees = []
 
                                 for emp_name, entries in employee_groups.items():
-                                    is_indirect = employee_info.get(emp_name, {}).get('indirect', False)
+                                    is_indirect = _employee_info_lookup(employee_info, emp_name).get('indirect', False)
                                     prepared_entries = _prepare_employee_entries(entries)
 
                                     employee_data = {
