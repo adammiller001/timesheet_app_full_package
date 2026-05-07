@@ -20,6 +20,11 @@ st.session_state["page_header"] = f"{PAGE_ICON} {PAGE_TITLE}"
 
 # Gate: require login and admin access
 if not st.session_state.get("authenticated", False):
+    for login_page in ("streamlit_app.py", "Home.py"):
+        try:
+            st.switch_page(login_page)
+        except Exception:
+            pass
     st.warning("Please sign in on the Home page first.")
     st.stop()
 

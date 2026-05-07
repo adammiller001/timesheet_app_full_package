@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import time
+from app.auth_memory import apply_login_email_memory, remember_login_email
 from app.style_utils import apply_watermark
 
 try:
@@ -156,9 +157,12 @@ if "user_email" not in st.session_state:
 if not st.session_state.get("authenticated", False):
     st.title("🔐 Field Reports Suite")
     st.markdown("### Please sign in with your work email")
+    remembered_email = apply_login_email_memory()
+    if remembered_email and "login_email_input" not in st.session_state:
+        st.session_state["login_email_input"] = remembered_email
 
     with st.form("login_form"):
-        email = st.text_input("Email Address", placeholder="you@ptwenergy.com").strip().lower()
+        email = st.text_input("Email Address", placeholder="you@ptwenergy.com", key="login_email_input").strip().lower()
         submitted = st.form_submit_button("Sign In", type="primary")
 
         if submitted:
@@ -168,6 +172,7 @@ if not st.session_state.get("authenticated", False):
                 # Force refresh authentication data on every login attempt
                 is_valid, user_type, error = authenticate_user(email, force_refresh=True)
                 if is_valid:
+                    remember_login_email(email)
                     st.session_state["user_email"] = email
                     st.session_state["user_type"] = user_type
                     st.session_state["authenticated"] = True

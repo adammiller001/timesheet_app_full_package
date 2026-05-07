@@ -290,6 +290,11 @@ def _render_sheet_editor(label: str, candidates, key_prefix: str):
 
 
 if not st.session_state.get("authenticated", False):
+    for login_page in ("streamlit_app.py", "Home.py"):
+        try:
+            st.switch_page(login_page)
+        except Exception:
+            pass
     st.warning("Please sign in on the Home page first.")
     st.stop()
 

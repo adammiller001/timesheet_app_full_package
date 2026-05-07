@@ -7,6 +7,11 @@ from app.features.export_daily_time import export_daily_time
 
 # Gate: require login
 if not st.session_state.get("authenticated", False):
+    for login_page in ("streamlit_app.py", "Home.py"):
+        try:
+            st.switch_page(login_page)
+        except Exception:
+            pass
     st.warning("Please sign in on the Home page first.")
     st.stop()
 
