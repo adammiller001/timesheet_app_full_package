@@ -241,6 +241,23 @@ def _csv_bytes(df: pd.DataFrame) -> bytes:
     return buffer.getvalue().encode("utf-8")
 
 
+def _blank_rows(columns, count: int) -> pd.DataFrame:
+    return pd.DataFrame([{col: "" for col in columns} for _ in range(max(0, int(count)))])
+
+
+def _row_option_label(df: pd.DataFrame, idx: int) -> str:
+    row = df.iloc[idx]
+    preview_values = []
+    for value in row.tolist():
+        text = str(value).strip()
+        if text:
+            preview_values.append(text)
+        if len(preview_values) == 3:
+            break
+    preview = " | ".join(preview_values) if preview_values else "blank row"
+    return f"Row {idx + 1}: {preview}"
+
+
 def _render_sheet_editor(label: str, candidates, key_prefix: str):
     force_key = f"{key_prefix}_force_refresh"
     if st.button("Refresh from Google", key=f"{key_prefix}_refresh"):
@@ -261,14 +278,72 @@ def _render_sheet_editor(label: str, candidates, key_prefix: str):
         key=f"{key_prefix}_backup",
     )
 
+    data_key = f"{key_prefix}_working_df"
+    title_key = f"{key_prefix}_working_title"
+    version_key = f"{key_prefix}_editor_version"
+
+    if version_key not in st.session_state:
+        st.session_state[version_key] = 0
+
+    if force_refresh or st.session_state.get(title_key) != actual_title or data_key not in st.session_state:
+        st.session_state[data_key] = df.reset_index(drop=True)
+        st.session_state[title_key] = actual_title
+        st.session_state[version_key] += 1
+
+    working_df = st.session_state[data_key].copy()
+    editor_version = st.session_state[version_key]
+
     edited_df = st.data_editor(
-        df,
-        key=f"{key_prefix}_editor",
+        working_df,
+        key=f"{key_prefix}_editor_{editor_version}",
         num_rows="dynamic",
         hide_index=True,
         use_container_width=True,
         height=560,
     )
+    edited_df = edited_df.reset_index(drop=True)
+    st.session_state[data_key] = edited_df.copy()
+
+    st.markdown("#### Line controls")
+    add_col, remove_col = st.columns([1, 3])
+    with add_col:
+        add_count = st.number_input(
+            "Lines to add",
+            min_value=1,
+            max_value=50,
+            value=1,
+            step=1,
+            key=f"{key_prefix}_add_count",
+        )
+        add_clicked = st.button("Add blank line", key=f"{key_prefix}_add_line")
+    with remove_col:
+        remove_options = list(range(len(edited_df)))
+        rows_to_remove = st.multiselect(
+            "Lines to remove",
+            options=remove_options,
+            format_func=lambda idx: _row_option_label(edited_df, idx),
+            key=f"{key_prefix}_remove_rows_{editor_version}",
+            placeholder="Select one or more rows...",
+        )
+        remove_clicked = st.button("Remove selected lines", key=f"{key_prefix}_remove_lines")
+
+    if add_clicked:
+        updated_df = pd.concat(
+            [edited_df, _blank_rows(edited_df.columns, int(add_count))],
+            ignore_index=True,
+        )
+        st.session_state[data_key] = updated_df
+        st.session_state[version_key] += 1
+        st.rerun()
+
+    if remove_clicked:
+        if not rows_to_remove:
+            st.warning("Select at least one line to remove.")
+        else:
+            updated_df = edited_df.drop(index=rows_to_remove).reset_index(drop=True)
+            st.session_state[data_key] = updated_df
+            st.session_state[version_key] += 1
+            st.rerun()
 
     save_col, note_col = st.columns([1, 4])
     with save_col:
