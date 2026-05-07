@@ -1884,7 +1884,7 @@ if user_type.upper() == "ADMIN":
                                         time_record_type = clean_value(emp_info.get('time_record_type', ''))
                                         post_to_payroll = clean_value(emp_info.get('post_to_payroll', ''))
 
-                                        rate_cell = subsistence_rate or premium_rate or travel_rate
+                                        rate_cell = "NS" if night_shift else (subsistence_rate or premium_rate or travel_rate)
 
                                         base_data = [
                                             export_date.strftime('%Y-%m-%d'),  # A - Date
@@ -1899,7 +1899,7 @@ if user_type.upper() == "ADMIN":
                                             '211',                             # J - Pay Code (will be changed per entry)
                                             0.0,                               # K - Hours (will be set per entry)
                                             night_shift,                       # L - Night Shift
-                                            rate_cell,                         # M - Rate cell (prefers Subsistence)
+                                            rate_cell,                         # M - NS when night shift, otherwise rate
                                             '',                                # N - Comments (left blank)
                                             ''                                 # O - Extra column (left blank)
                                         ]
@@ -1932,7 +1932,8 @@ if user_type.upper() == "ADMIN":
                                                     sub_data = base_data.copy()
                                                     sub_data[9] = '261'  # Subsistence pay code
                                                     sub_data[10] = 1.0   # Hours = 1 for subsistence
-                                                    sub_data[12] = subsistence_rate  # Put subsistence rate in column M (Premium Rate column)
+                                                    if not night_shift:
+                                                        sub_data[12] = subsistence_rate  # Put subsistence rate in column M
 
                                                     for col, val in enumerate(sub_data, 1):
                                                         ws.cell(row=current_row, column=col, value=val)
