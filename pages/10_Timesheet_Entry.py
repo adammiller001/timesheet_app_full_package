@@ -1111,14 +1111,7 @@ _legacy_spacer()
 
 
 def _normalize_night_flag(raw_value) -> str:
-    if raw_value is None:
-        return ""
-    value = str(raw_value).strip()
-    if not value or value.lower() in {"nan", "none"}:
-        return ""
-    if value.upper() in {"Y", "YES", "TRUE", "1"}:
-        return "Y"
-    return ""
+    return _clean_text_value(raw_value)
 
 def night_flag_for(_name: str) -> str:
     """Return 'Y' if employee has night shift flag, otherwise empty string"""
@@ -1500,6 +1493,25 @@ if user_type.upper() == "ADMIN":
                     pass
                 return ""
 
+            def _get_employee_night_shift(emp_row):
+                """Return the Night Shift value from Employee List column H, with header fallbacks."""
+                if emp_row is None:
+                    return ""
+                for col_name in ("Night Shift", "NightShift", "Nightshift", "Night"):
+                    try:
+                        value = emp_row.get(col_name, "")
+                    except Exception:
+                        value = ""
+                    cleaned_value = _clean_text_value(value)
+                    if cleaned_value:
+                        return cleaned_value
+                try:
+                    if len(emp_row.index) >= 8:
+                        return _clean_text_value(emp_row.iloc[7])
+                except Exception:
+                    pass
+                return ""
+
             def _write_employee_to_daily_time(ws, emp_entries, row_num, employee_info, cost_code_descriptions):
                 """Write employee data to specific row in Daily Time template"""
                 if not emp_entries:
@@ -1827,7 +1839,7 @@ if user_type.upper() == "ADMIN":
                                             'subsistence': str(emp_row.get("Subsistence Rate", "") or "").strip(),
                                             'travel_rate': str(emp_row.get("Travel Rate", "") or "").strip(),
                                             'post_to_payroll': _get_employee_post_to_payroll(emp_row),
-                                            'night_shift': _normalize_night_flag(emp_row.get("Night Shift", "")),
+                                            'night_shift': _get_employee_night_shift(emp_row),
                                             'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip()
                                         }
 
@@ -1865,9 +1877,9 @@ if user_type.upper() == "ADMIN":
                                         premium_rate = clean_value(emp_info.get('premium_rate', '')) or clean_value(row.get('Premium Rate', ''))
                                         subsistence_rate = clean_value(emp_info.get('subsistence', '')) or clean_value(row.get('Subsistence Rate', ''))
                                         travel_rate = clean_value(emp_info.get('travel_rate', '')) or clean_value(row.get('Travel Rate', ''))
-                                        night_shift = _normalize_night_flag(emp_info.get('night_shift', ''))
+                                        night_shift = clean_value(emp_info.get('night_shift', ''))
                                         if not night_shift:
-                                            night_shift = _normalize_night_flag(row.get('Night Shift', ''))
+                                            night_shift = clean_value(row.get('Night Shift', ''))
 
                                         time_record_type = clean_value(emp_info.get('time_record_type', ''))
                                         post_to_payroll = clean_value(emp_info.get('post_to_payroll', ''))
