@@ -245,19 +245,6 @@ def _blank_rows(columns, count: int) -> pd.DataFrame:
     return pd.DataFrame([{col: "" for col in columns} for _ in range(max(0, int(count)))])
 
 
-def _row_option_label(df: pd.DataFrame, idx: int) -> str:
-    row = df.iloc[idx]
-    preview_values = []
-    for value in row.tolist():
-        text = str(value).strip()
-        if text:
-            preview_values.append(text)
-        if len(preview_values) == 3:
-            break
-    preview = " | ".join(preview_values) if preview_values else "blank row"
-    return f"Row {idx + 1}: {preview}"
-
-
 def _render_sheet_editor(label: str, candidates, key_prefix: str):
     force_key = f"{key_prefix}_force_refresh"
     if st.button("Refresh from Google", key=f"{key_prefix}_refresh"):
@@ -292,16 +279,29 @@ def _render_sheet_editor(label: str, candidates, key_prefix: str):
 
     working_df = st.session_state[data_key].copy()
     editor_version = st.session_state[version_key]
+    remove_col_name = "_Remove Line"
+    editor_df = working_df.copy()
+    while remove_col_name in editor_df.columns:
+        remove_col_name = f"_{remove_col_name}"
+    editor_df.insert(0, remove_col_name, False)
 
-    edited_df = st.data_editor(
-        working_df,
+    edited_display_df = st.data_editor(
+        editor_df,
         key=f"{key_prefix}_editor_{editor_version}",
         num_rows="dynamic",
         hide_index=True,
         use_container_width=True,
         height=560,
+        column_config={
+            remove_col_name: st.column_config.CheckboxColumn(
+                "Remove",
+                help="Check this box, then click Remove selected lines.",
+                default=False,
+            )
+        },
     )
-    edited_df = edited_df.reset_index(drop=True)
+    selected_for_removal = edited_display_df[remove_col_name].fillna(False).astype(bool)
+    edited_df = edited_display_df.drop(columns=[remove_col_name]).reset_index(drop=True)
     st.session_state[data_key] = edited_df.copy()
 
     st.markdown("#### Line controls")
@@ -317,14 +317,7 @@ def _render_sheet_editor(label: str, candidates, key_prefix: str):
         )
         add_clicked = st.button("Add blank line", key=f"{key_prefix}_add_line")
     with remove_col:
-        remove_options = list(range(len(edited_df)))
-        rows_to_remove = st.multiselect(
-            "Lines to remove",
-            options=remove_options,
-            format_func=lambda idx: _row_option_label(edited_df, idx),
-            key=f"{key_prefix}_remove_rows_{editor_version}",
-            placeholder="Select one or more rows...",
-        )
+        st.caption("Check the Remove box on the left side of the table, then click the button below.")
         remove_clicked = st.button("Remove selected lines", key=f"{key_prefix}_remove_lines")
 
     if add_clicked:
@@ -337,10 +330,10 @@ def _render_sheet_editor(label: str, candidates, key_prefix: str):
         st.rerun()
 
     if remove_clicked:
-        if not rows_to_remove:
+        if not selected_for_removal.any():
             st.warning("Select at least one line to remove.")
         else:
-            updated_df = edited_df.drop(index=rows_to_remove).reset_index(drop=True)
+            updated_df = edited_df.loc[~selected_for_removal.to_numpy()].reset_index(drop=True)
             st.session_state[data_key] = updated_df
             st.session_state[version_key] += 1
             st.rerun()
