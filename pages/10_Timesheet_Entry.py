@@ -862,6 +862,17 @@ def _pad_area(val: object) -> str:
     """Ensure area is 3 digits with zero padding"""
     return _normalize_job_area_value(val, blank_value="000")
 
+def _clean_text_value(raw_value) -> str:
+    if raw_value is None:
+        return ""
+    try:
+        if pd.isna(raw_value):
+            return ""
+    except Exception:
+        pass
+    text = str(raw_value).strip()
+    return "" if text.lower() in {"nan", "none"} else text
+
 def _is_truthy(value) -> bool:
     """Return True if the value represents an affirmative flag."""
     str_val = str(value).strip().upper()
@@ -1058,8 +1069,8 @@ try:
         employee_total_rows = len(_emp_df)
         _emp_df.columns = [str(c).strip() for c in _emp_df.columns]
         cols = list(_emp_df.columns)
-        name_col = cols[2] if len(cols) > 2 else cols[0]
-        active_col = cols[10] if len(cols) > 10 else None
+        name_col = _find_col(_emp_df, ["Employee Name", "Name", "Employee"]) or (cols[2] if len(cols) > 2 else cols[0])
+        active_col = _find_col(_emp_df, ["Active", "Is Active", "Enabled"])
         if active_col and active_col in _emp_df.columns:
             mask = _emp_df[active_col].apply(_is_truthy)
             employee_active_rows = int(mask.sum())
@@ -1470,6 +1481,25 @@ if user_type.upper() == "ADMIN":
                     pass
                 return ""
 
+            def _get_employee_post_to_payroll(emp_row):
+                """Return the Post To Payroll value from Employee List column G, with header fallbacks."""
+                if emp_row is None:
+                    return ""
+                for col_name in ("Post To Payroll", "Post to Payroll", "Post Payroll", "Payroll", "Payroll Post"):
+                    try:
+                        value = emp_row.get(col_name, "")
+                    except Exception:
+                        value = ""
+                    cleaned_value = _clean_text_value(value)
+                    if cleaned_value:
+                        return cleaned_value
+                try:
+                    if len(emp_row.index) >= 7:
+                        return _clean_text_value(emp_row.iloc[6])
+                except Exception:
+                    pass
+                return ""
+
             def _write_employee_to_daily_time(ws, emp_entries, row_num, employee_info, cost_code_descriptions):
                 """Write employee data to specific row in Daily Time template"""
                 if not emp_entries:
@@ -1630,6 +1660,7 @@ if user_type.upper() == "ADMIN":
                                             'premium_rate': str(emp_row.get("Premium Rate", "") or ""),
                                             'subsistence_rate': str(emp_row.get("Subsistence Rate", "") or ""),
                                             'travel_rate': str(emp_row.get("Travel Rate", "") or ""),
+                                            'post_to_payroll': _get_employee_post_to_payroll(emp_row),
                                             'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip()
                                         }
 
@@ -1795,6 +1826,7 @@ if user_type.upper() == "ADMIN":
                                             'premium_rate': str(emp_row.get("Premium Rate", "") or "").strip(),
                                             'subsistence': str(emp_row.get("Subsistence Rate", "") or "").strip(),
                                             'travel_rate': str(emp_row.get("Travel Rate", "") or "").strip(),
+                                            'post_to_payroll': _get_employee_post_to_payroll(emp_row),
                                             'night_shift': _normalize_night_flag(emp_row.get("Night Shift", "")),
                                             'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip()
                                         }
@@ -1822,7 +1854,7 @@ if user_type.upper() == "ADMIN":
                                     for _, row in job_data.iterrows():
                                         # Get employee data for rates
                                         emp_name = str(row.get('Name', ''))
-                                        emp_info = employee_info.get(emp_name, {})
+                                        emp_info = _employee_info_lookup(employee_info, emp_name)
 
                                         # Helper function to clean values
                                         def clean_value(val):
@@ -1838,6 +1870,7 @@ if user_type.upper() == "ADMIN":
                                             night_shift = _normalize_night_flag(row.get('Night Shift', ''))
 
                                         time_record_type = clean_value(emp_info.get('time_record_type', ''))
+                                        post_to_payroll = clean_value(emp_info.get('post_to_payroll', ''))
 
                                         rate_cell = subsistence_rate or premium_rate or travel_rate
 
@@ -1847,7 +1880,7 @@ if user_type.upper() == "ADMIN":
                                             clean_value(row.get('Employee Number', '')),  # C - Employee Number
                                             clean_value(row.get('Name', '')),             # D - Name
                                             clean_value(row.get('Trade Class', '')),      # E - Trade Class
-                                            'Y',                               # F - Always 'Y'
+                                            post_to_payroll,                   # F - Post To Payroll
                                             clean_value(row.get('Cost Code', '')),        # G - Cost Code
                                             str(row.get('Job Area', '')).zfill(3),        # H - Job Area (3 digits)
                                             '',                                # I - Empty
