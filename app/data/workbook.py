@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 from typing import List
 
+from app.data.time_data import normalize_job_area_value
 from app.integrations.google_sheets import get_sheets_manager
 
 TIME_DATA_HEADERS: List[str] = [
@@ -101,11 +102,7 @@ def only_active_cost_codes(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def pad_job_area(value) -> str:
-    s = str(value).strip()
-    if not s or s.lower() in {"nan", "none"}:
-        return ""
-    digits = "".join(ch for ch in s.split(".", 1)[0] if ch.isdigit())
-    return digits.zfill(3) if digits else s
+    return normalize_job_area_value(value)
 
 
 def get_time_data(_: str | None = None, force_refresh: bool = False) -> pd.DataFrame:

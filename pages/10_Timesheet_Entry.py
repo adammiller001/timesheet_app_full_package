@@ -14,6 +14,14 @@ from copy import copy
 from shutil import copyfile
 from time import sleep
 import time
+from app.data.time_data import (
+    TIME_DATA_COLUMNS,
+    append_time_rows,
+    filter_time_data_by_date,
+    normalize_job_area_value,
+    normalize_sheet_value,
+    prepare_time_data_dataframe,
+)
 from app.style_utils import apply_watermark
 from datetime import datetime, date
 from typing import Optional
@@ -81,25 +89,6 @@ if "auto_fresh_data" not in st.session_state:
 
 XLSX = None
 
-# Optional local Excel fallback path (set secrets.local_workbook_path to enable)
-try:
-    _local_workbook = str(st.secrets.get('local_workbook_path', '')).strip() if 'local_workbook_path' in st.secrets else ''
-    if _local_workbook:
-        candidate = Path(_local_workbook)
-        if not candidate.is_absolute():
-            candidate = Path.cwd() / candidate
-        if candidate.exists():
-            XLSX = candidate
-except Exception:
-    XLSX = None
-
-TIME_DATA_COLUMNS = [
-    "Job Number", "Job Area", "Date", "Name", "Trade Class",
-    "Employee Number", "RT Hours", "OT Hours", "Description of work",
-    "Comments", "Night Shift", "Premium Rate", "Subsistence Rate",
-    "Travel Rate", "Indirect", "Cost Code", "Entered By"
-]
-
 # File modification time monitoring for automatic reloads
 def check_file_modified():
     """Placeholder: Google Sheets updates are handled via cache refresh."""
@@ -118,31 +107,11 @@ def safe_read_excel_force_fresh(file_path, sheet_name):
     return safe_read_excel(file_path, sheet_name, force_refresh=True)
 
 def safe_read_excel(file_path, sheet_name, force_refresh=False):
-    """Read worksheet data either from Google Sheets or a local Excel workbook."""
+    """Read worksheet data from the shared Google Sheets workbook."""
     sheet_id = str(st.secrets.get('google_sheets_id', '')).strip() if 'google_sheets_id' in st.secrets else ''
     if HAVE_GOOGLE_SHEETS and sheet_id:
         try:
             df = read_timesheet_data(sheet_name, force_refresh=force_refresh)
-            if isinstance(df, pd.DataFrame) and not df.empty:
-                df = df.copy()
-                df.columns = [str(c).strip() for c in df.columns]
-                return df
-        except Exception:
-            pass
-
-    # Fallback to a local workbook if one was configured
-    candidate_path = None
-    try:
-        if file_path:
-            candidate_path = Path(file_path)
-        elif XLSX:
-            candidate_path = Path(XLSX)
-    except Exception:
-        candidate_path = None
-
-    if candidate_path and candidate_path.exists():
-        try:
-            df = pd.read_excel(candidate_path, sheet_name=sheet_name)
             if isinstance(df, pd.DataFrame):
                 df = df.copy()
                 df.columns = [str(c).strip() for c in df.columns]
@@ -151,7 +120,7 @@ def safe_read_excel(file_path, sheet_name, force_refresh=False):
             pass
     return pd.DataFrame()
 
-@st.cache_data(show_spinner=False, ttl=60)
+@st.cache_data(show_spinner=False, ttl=600)
 def _cached_sheet_data(sheet_name: str, cache_token: int, force_refresh: bool):
     try:
         df = read_timesheet_data(sheet_name, force_refresh=force_refresh)
@@ -167,7 +136,7 @@ def _resolve_user_type(email: str, fallback: str) -> str:
     if not email:
         return fallback
     try:
-        users_df = smart_read_data("Users", force_refresh=True)
+        users_df = smart_read_data("Users", force_refresh=False)
         if isinstance(users_df, pd.DataFrame) and not users_df.empty:
             users_df = users_df.copy()
             users_df.columns = [str(c).strip() for c in users_df.columns]
@@ -207,6 +176,14 @@ if st.sidebar.button("Refresh All Dropdowns", use_container_width=True):
     st.session_state['force_fresh_data'] = True
     st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
     st.session_state['data_refresh_timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        manager = get_sheets_manager()
+        if hasattr(manager, "_data_cache"):
+            manager._data_cache.clear()
+        if hasattr(manager, "_worksheet_cache"):
+            manager._worksheet_cache = {"timestamp": 0.0, "worksheets": []}
+    except Exception:
+        pass
     st.rerun()
 
 
@@ -222,14 +199,13 @@ def smart_read_data(sheet_name, force_refresh=False):
         if isinstance(df, pd.DataFrame) and not df.empty:
             return df.copy()
 
-        # Fallback to Excel file if Google Sheets unavailable or empty
-        return safe_read_excel(XLSX, sheet_name, force_refresh=True)
+        return pd.DataFrame()
     except Exception as e:
         st.error(f"Failed to load {sheet_name}: {e}")
         return pd.DataFrame()
 
 
-def _fetch_sheet_dataframe(primary_sheet: str, alt_names: Optional[tuple[str, ...]] = None, *, force_refresh: bool = True) -> pd.DataFrame:
+def _fetch_sheet_dataframe(primary_sheet: str, alt_names: Optional[tuple[str, ...]] = None, *, force_refresh: bool = False) -> pd.DataFrame:
     """Fetch a worksheet as a DataFrame with direct Google Sheets access and cached fallback."""
     candidates = [primary_sheet]
     if alt_names:
@@ -281,41 +257,10 @@ def get_available_worksheets(_: object = None):
     return titles
 
 def _normalize_job_area_value(value, blank_value='') -> str:
-    if value is None:
-        return blank_value
-    try:
-        if pd.isna(value):
-            return blank_value
-    except Exception:
-        pass
-    text = str(value).strip()
-    if not text or text.lower() in {"nan", "none"}:
-        return blank_value
-    match = re.search(r"\d+", text)
-    if match:
-        return match.group(0).zfill(3)
-    return text
+    return normalize_job_area_value(value, blank_value=blank_value)
 
 def _prepare_time_data_dataframe(df: Optional[pd.DataFrame]) -> pd.DataFrame:
-    if df is None or df.empty:
-        df = pd.DataFrame(columns=TIME_DATA_COLUMNS)
-    else:
-        df = df.copy()
-    for col in TIME_DATA_COLUMNS:
-        if col not in df.columns:
-            df[col] = ''
-    ordered_cols = TIME_DATA_COLUMNS + [col for col in df.columns if col not in TIME_DATA_COLUMNS]
-    df = df[ordered_cols]
-    if 'Date' in df.columns and not df.empty:
-        try:
-            df['Date'] = pd.to_datetime(df['Date']).dt.strftime('%Y-%m-%d')
-        except Exception:
-            df['Date'] = df['Date'].astype(str)
-    df_map = getattr(df, "map", None)
-    df = df_map(_normalize_sheet_value) if df_map else df.applymap(_normalize_sheet_value)
-    if 'Job Area' in df.columns:
-        df['Job Area'] = df['Job Area'].apply(_normalize_job_area_value)
-    return df
+    return prepare_time_data_dataframe(df)
 
 def _load_time_data_from_excel() -> pd.DataFrame:
     df = safe_read_excel(None, 'Time Data', force_refresh=True)
@@ -355,39 +300,13 @@ def get_time_data_from_session(_date_filter=None):
     """Get time data from session state with optional date filtering"""
     try:
         data = st.session_state.session_time_data.copy()
-
-        if _date_filter and "Date" in data.columns and not data.empty:
-            data["Date"] = pd.to_datetime(data["Date"])
-            data = data[data["Date"].dt.strftime("%Y-%m-%d") == _date_filter]
-
-        return data
+        return filter_time_data_by_date(data, _date_filter)
     except Exception as e:
         st.error(f"Error reading session time data: {e}")
         return pd.DataFrame()
 
 def _normalize_sheet_value(value):
-    if value is None:
-        return ''
-    if isinstance(value, str):
-        return value.strip()
-    if isinstance(value, bool):
-        return 'TRUE' if value else 'FALSE'
-    if isinstance(value, (int, float)):
-        if pd.isna(value):
-            return ''
-        return ("{0:.15g}".format(float(value))).rstrip('.0') if float(value).is_integer() else "{0:.15g}".format(float(value))
-    if isinstance(value, pd.Timestamp):
-        return value.strftime('%Y-%m-%d')
-    if isinstance(value, datetime):
-        return value.strftime('%Y-%m-%d')
-    if isinstance(value, date):
-        return value.strftime('%Y-%m-%d')
-    try:
-        if pd.isna(value):
-            return ''
-    except Exception:
-        pass
-    return str(value).strip()
+    return normalize_sheet_value(value)
 
 
 def _build_sheet_row(row_dict, headers):
@@ -446,8 +365,10 @@ def _sync_time_data_to_google(new_data_df: pd.DataFrame) -> bool:
                     break
 
         if not headers:
-            manager.write_worksheet(actual_title, df_to_sync, sheet_id, value_input_option="RAW")
-            return True
+            success = manager.write_worksheet(actual_title, df_to_sync, sheet_id, value_input_option="RAW")
+            if success:
+                _cached_sheet_data.clear()
+            return bool(success)
 
         def _norm(col_name: str) -> str:
             return ''.join(ch for ch in str(col_name).strip().lower() if ch.isalnum())
@@ -482,7 +403,10 @@ def _sync_time_data_to_google(new_data_df: pd.DataFrame) -> bool:
         if not rows_to_append:
             return True
 
-        return manager.append_rows(actual_title, rows_to_append, sheet_id, value_input_option="RAW")
+        success = manager.append_rows(actual_title, rows_to_append, sheet_id, value_input_option="RAW")
+        if success:
+            _cached_sheet_data.clear()
+        return success
 
     except Exception as e:
         st.error(f"Failed to sync Time Data to Google Sheets: {e}")
@@ -529,6 +453,8 @@ def _replace_time_data_in_google(updated_df: pd.DataFrame) -> bool:
             df_to_write = df_to_write[headers]
 
         success = manager.write_worksheet(actual_title, df_to_write, sheet_id, value_input_option="RAW")
+        if success:
+            _cached_sheet_data.clear()
         return bool(success)
     except Exception as e:
         st.error(f"Failed to update Time Data in Google Sheets: {e}")
@@ -580,7 +506,7 @@ def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return df
     try:
-        employee_df = smart_read_data("Employee List", force_refresh=True)
+        employee_df = smart_read_data("Employee List", force_refresh=False)
         if not isinstance(employee_df, pd.DataFrame) or employee_df.empty:
             return df
         employee_df = employee_df.copy()
@@ -625,7 +551,7 @@ def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def save_to_session(new_rows):
-    """Save new rows to shared Google Sheets, then refresh this user's page cache."""
+    """Append new rows to shared Google Sheets, then update this user's page cache."""
     try:
         if not new_rows:
             return False
@@ -635,35 +561,19 @@ def save_to_session(new_rows):
             return False
 
         new_data_df = _enrich_with_employee_details(new_data_df)
-
-        refreshed_df, source = _load_latest_time_data_for_sync()
-        existing_df = st.session_state.get("session_time_data")
-
-        if source == "google":
-            combined_source = refreshed_df
-        else:
-            if isinstance(existing_df, pd.DataFrame) and not existing_df.empty:
-                combined_source = existing_df
-            else:
-                combined_source = refreshed_df
-
-        combined_source = _enrich_with_employee_details(combined_source)
-        if combined_source is None or combined_source.empty:
-            combined_source = pd.DataFrame(columns=TIME_DATA_COLUMNS.copy())
-
-        updated_df = pd.concat([combined_source, new_data_df], ignore_index=True)
-        updated_df = _enrich_with_employee_details(updated_df)
-        updated_df = _prepare_time_data_dataframe(updated_df)
-
         google_synced = _sync_time_data_to_google(new_data_df)
         if not google_synced:
+            refreshed_df, _ = _load_latest_time_data_for_sync()
+            updated_df = append_time_rows(refreshed_df, new_data_df)
             google_synced = _replace_time_data_in_google(updated_df)
+        else:
+            existing_df = st.session_state.get("session_time_data")
+            updated_df = append_time_rows(existing_df, new_data_df)
         if not google_synced:
             st.error("Could not update shared Google Sheets Time Data. No local-only entry was saved.")
             return False
 
         st.session_state.session_time_data = updated_df
-        st.session_state['sheet_cache_token'] = st.session_state.get('sheet_cache_token', 0) + 1
         return True
     except Exception as e:
         st.error(f"Error saving to Time Data: {e}")
@@ -1026,7 +936,7 @@ def _load_active_job_options() -> tuple[list[str], int, int]:
     total_rows = 0
     active_rows = 0
     try:
-        jobs_df = _fetch_sheet_dataframe("Job Numbers", ("Jobs",), force_refresh=True)
+        jobs_df = _fetch_sheet_dataframe("Job Numbers", ("Jobs",), force_refresh=False)
         if isinstance(jobs_df, pd.DataFrame) and not jobs_df.empty:
             jobs_df = jobs_df.copy()
             total_rows = len(jobs_df)
@@ -1089,7 +999,7 @@ def _load_active_cost_codes() -> tuple[list[str], int, int]:
     total_rows = 0
     active_rows = 0
     try:
-        cost_df = _fetch_sheet_dataframe("Cost Codes", ("CostCodes",), force_refresh=True)
+        cost_df = _fetch_sheet_dataframe("Cost Codes", ("CostCodes",), force_refresh=False)
         if isinstance(cost_df, pd.DataFrame) and not cost_df.empty:
             cost_df = cost_df.copy()
             total_rows = len(cost_df)
@@ -1142,7 +1052,7 @@ _legacy_spacer()
 employee_total_rows = 0
 employee_active_rows = 0
 try:
-    _emp_df_raw = _fetch_sheet_dataframe("Employee List", ("Employees",), force_refresh=True)
+    _emp_df_raw = _fetch_sheet_dataframe("Employee List", ("Employees",), force_refresh=False)
     if isinstance(_emp_df_raw, pd.DataFrame) and not _emp_df_raw.empty:
         _emp_df = _emp_df_raw.copy()
         employee_total_rows = len(_emp_df)
@@ -1499,7 +1409,7 @@ if user_type.upper() == "ADMIN":
         if not time_data_for_export.empty:
             time_data_for_export = time_data_for_export.copy()
         else:
-            time_data_for_export = smart_read_data("Time Data", force_refresh=True)
+            time_data_for_export = smart_read_data("Time Data", force_refresh=False)
             if time_data_for_export.empty:
                 time_data_for_export = safe_read_excel(XLSX, "Time Data")
         if not time_data_for_export.empty:
@@ -1870,7 +1780,7 @@ if user_type.upper() == "ADMIN":
                         if timeentries_template.exists():
                             # Load employee data for rates (if not already loaded)
                             if 'employee_info' not in locals():
-                                employee_df = smart_read_data("Employee List", force_refresh=True)
+                                employee_df = smart_read_data("Employee List", force_refresh=False)
                                 employee_info = {}
                                 if isinstance(employee_df, pd.DataFrame) and not employee_df.empty:
                                     employee_df = employee_df.copy()

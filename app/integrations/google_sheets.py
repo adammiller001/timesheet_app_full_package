@@ -56,7 +56,7 @@ class GoogleSheetsManager:
             'worksheets': []
         }
         self._data_cache: Dict[str, Tuple[float, pd.DataFrame]] = {}
-        self._cache_ttl = 60
+        self._cache_ttl = 600
         self._force_refresh_cooldown = 5
 
     # ------------------------------------------------------------------
@@ -118,7 +118,7 @@ class GoogleSheetsManager:
         session = self._ensure_session()
         if session is None:
             return []
-        cache_ttl = 30
+        cache_ttl = 300
         now = time.time()
         if self._worksheet_cache['worksheets'] and (now - self._worksheet_cache['timestamp']) <= cache_ttl:
             return self._worksheet_cache['worksheets']
@@ -144,7 +144,7 @@ class GoogleSheetsManager:
             try:
                 if not self.spreadsheet:
                     self.spreadsheet = self.gc.open_by_key(spreadsheet_id)
-                cache_ttl = 30
+                cache_ttl = 300
                 now = time.time()
                 if (not self._worksheet_cache['worksheets'] or
                         (now - self._worksheet_cache['timestamp']) > cache_ttl):

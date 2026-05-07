@@ -202,7 +202,7 @@ def _current_user_is_sheet_admin() -> tuple[bool, Optional[str]]:
     if not email:
         return False, "No signed-in user email is available."
 
-    users_df, actual_title, error = _read_sheet(("Users", "User"), force_refresh=True)
+    users_df, actual_title, error = _read_sheet(("Users", "User"), force_refresh=False)
     if error:
         return False, error
     if users_df.empty:
@@ -247,14 +247,23 @@ def _blank_rows(columns, count: int) -> pd.DataFrame:
 
 def _render_sheet_editor(label: str, candidates, key_prefix: str):
     force_key = f"{key_prefix}_force_refresh"
+    data_key = f"{key_prefix}_working_df"
+    title_key = f"{key_prefix}_working_title"
+    version_key = f"{key_prefix}_editor_version"
+
     if st.button("Refresh from Google", key=f"{key_prefix}_refresh"):
         st.session_state[force_key] = True
 
     force_refresh = bool(st.session_state.pop(force_key, False))
-    df, actual_title, error = _read_sheet(candidates, force_refresh=force_refresh)
-    if error:
-        st.error(error)
-        return
+
+    if not force_refresh and data_key in st.session_state and title_key in st.session_state:
+        df = st.session_state[data_key].copy()
+        actual_title = st.session_state[title_key]
+    else:
+        df, actual_title, error = _read_sheet(candidates, force_refresh=force_refresh)
+        if error:
+            st.error(error)
+            return
 
     st.caption(f"Editing Google worksheet: {actual_title}")
     st.download_button(
@@ -264,10 +273,6 @@ def _render_sheet_editor(label: str, candidates, key_prefix: str):
         mime="text/csv",
         key=f"{key_prefix}_backup",
     )
-
-    data_key = f"{key_prefix}_working_df"
-    title_key = f"{key_prefix}_working_title"
-    version_key = f"{key_prefix}_editor_version"
 
     if version_key not in st.session_state:
         st.session_state[version_key] = 0
