@@ -290,40 +290,44 @@ def _render_sheet_editor(label: str, candidates, key_prefix: str):
         remove_col_name = f"_{remove_col_name}"
     editor_df.insert(0, remove_col_name, False)
 
-    edited_display_df = st.data_editor(
-        editor_df,
-        key=f"{key_prefix}_editor_{editor_version}",
-        num_rows="dynamic",
-        hide_index=True,
-        use_container_width=True,
-        height=560,
-        column_config={
-            remove_col_name: st.column_config.CheckboxColumn(
-                "Remove",
-                help="Check this box, then click Remove selected lines.",
-                default=False,
+    with st.form(f"{key_prefix}_edit_form"):
+        edited_display_df = st.data_editor(
+            editor_df,
+            key=f"{key_prefix}_editor_{editor_version}",
+            num_rows="dynamic",
+            hide_index=True,
+            use_container_width=True,
+            height=560,
+            column_config={
+                remove_col_name: st.column_config.CheckboxColumn(
+                    "Remove",
+                    help="Check this box, then click Remove selected lines.",
+                    default=False,
+                )
+            },
+        )
+
+        st.markdown("#### Line controls")
+        add_col, remove_col, save_col = st.columns([1, 2, 1])
+        with add_col:
+            add_count = st.number_input(
+                "Lines to add",
+                min_value=1,
+                max_value=50,
+                value=1,
+                step=1,
+                key=f"{key_prefix}_add_count",
             )
-        },
-    )
+            add_clicked = st.form_submit_button("Add blank line")
+        with remove_col:
+            st.caption("Check the Remove box on the left side of the table, then click the button below.")
+            remove_clicked = st.form_submit_button("Remove selected lines")
+        with save_col:
+            st.caption("Saving rewrites this worksheet's values in Google Sheets.")
+            save_clicked = st.form_submit_button("Save changes", type="primary")
+
     selected_for_removal = edited_display_df[remove_col_name].fillna(False).astype(bool)
     edited_df = edited_display_df.drop(columns=[remove_col_name]).reset_index(drop=True)
-    st.session_state[data_key] = edited_df.copy()
-
-    st.markdown("#### Line controls")
-    add_col, remove_col = st.columns([1, 3])
-    with add_col:
-        add_count = st.number_input(
-            "Lines to add",
-            min_value=1,
-            max_value=50,
-            value=1,
-            step=1,
-            key=f"{key_prefix}_add_count",
-        )
-        add_clicked = st.button("Add blank line", key=f"{key_prefix}_add_line")
-    with remove_col:
-        st.caption("Check the Remove box on the left side of the table, then click the button below.")
-        remove_clicked = st.button("Remove selected lines", key=f"{key_prefix}_remove_lines")
 
     if add_clicked:
         updated_df = pd.concat(
@@ -343,13 +347,8 @@ def _render_sheet_editor(label: str, candidates, key_prefix: str):
             st.session_state[version_key] += 1
             st.rerun()
 
-    save_col, note_col = st.columns([1, 4])
-    with save_col:
-        save_clicked = st.button("Save changes", type="primary", key=f"{key_prefix}_save")
-    with note_col:
-        st.caption("Saving rewrites this worksheet's values in Google Sheets.")
-
     if save_clicked:
+        st.session_state[data_key] = edited_df.copy()
         if _write_sheet(actual_title, edited_df):
             st.success(f"Saved {label} to Google Sheets.")
             manager = _get_manager()
