@@ -475,6 +475,62 @@ def _is_blank_value(val) -> bool:
     text = str(val).strip()
     return text == '' or text.lower() in {"nan", "none"}
 
+def _find_col(df: pd.DataFrame, candidates):
+    for c in candidates:
+        if c in df.columns:
+            return c
+    normalized_cols = {
+        ''.join(ch for ch in str(col).strip().lower() if ch.isalnum()): col
+        for col in df.columns
+    }
+    for candidate in candidates:
+        match = normalized_cols.get(''.join(ch for ch in str(candidate).strip().lower() if ch.isalnum()))
+        if match:
+            return match
+    return None
+
+def _clean_text_value(raw_value) -> str:
+    if raw_value is None:
+        return ""
+    try:
+        if pd.isna(raw_value):
+            return ""
+    except Exception:
+        pass
+    text = str(raw_value).strip()
+    return "" if text.lower() in {"nan", "none"} else text
+
+def _get_employee_list_value(emp_row, candidates, fallback_index: Optional[int] = None) -> str:
+    if emp_row is None:
+        return ""
+    for col_name in candidates:
+        try:
+            cleaned_value = _clean_text_value(emp_row.get(col_name, ""))
+        except Exception:
+            cleaned_value = ""
+        if cleaned_value:
+            return cleaned_value
+    try:
+        normalized_candidates = {
+            ''.join(ch for ch in str(candidate).strip().lower() if ch.isalnum())
+            for candidate in candidates
+        }
+        for col_name in emp_row.index:
+            normalized_col = ''.join(ch for ch in str(col_name).strip().lower() if ch.isalnum())
+            if normalized_col in normalized_candidates:
+                cleaned_value = _clean_text_value(emp_row.get(col_name, ""))
+                if cleaned_value:
+                    return cleaned_value
+    except Exception:
+        pass
+    if fallback_index is not None:
+        try:
+            if len(emp_row.index) > fallback_index:
+                return _clean_text_value(emp_row.iloc[fallback_index])
+        except Exception:
+            pass
+    return ""
+
 def _normalize_employee_key(name) -> str:
     return ''.join(ch for ch in str(name or '').upper() if ch.isalnum())
 
@@ -513,18 +569,14 @@ def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
         employee_df.columns = [str(c).strip() for c in employee_df.columns]
         info = {}
         name_col = _find_col(employee_df, ["Employee Name", "Name"]) or "Employee Name"
-        night_col = _find_col(employee_df, ["Night Shift", "NightShift", "Nightshift", "Night"]) or "Night Shift"
-        premium_col = _find_col(employee_df, ["Premium Rate", "Premium"]) or "Premium Rate"
-        subsistence_col = _find_col(employee_df, ["Subsistence Rate", "Subsistence", "Column H"]) or "Subsistence Rate"
-        travel_col = _find_col(employee_df, ["Travel Rate", "Travel"]) or "Travel Rate"
         for _, emp_row in employee_df.iterrows():
             name = str(emp_row.get(name_col, "")).strip()
             if not name:
                 continue
-            night_val = _normalize_night_flag(emp_row.get(night_col, ""))
-            premium_val = str(emp_row.get(premium_col, "") or "").strip()
-            subsistence_val = str(emp_row.get(subsistence_col, "") or "").strip()
-            travel_val = str(emp_row.get(travel_col, "") or "").strip()
+            night_val = _get_employee_list_value(emp_row, ["Night Shift", "NightShift", "Nightshift", "Night"], 7)
+            premium_val = _get_employee_list_value(emp_row, ["Premium Rate", "Premium"], 8)
+            subsistence_val = _get_employee_list_value(emp_row, ["Subsistence Rate", "Subsistence"], 9)
+            travel_val = _get_employee_list_value(emp_row, ["Travel Rate", "Travel"], 10)
             info[name] = {
                 "night": night_val,
                 "premium": '' if _is_blank_value(premium_val) else premium_val,
@@ -852,26 +904,9 @@ if "session_time_data" not in st.session_state:
         st.session_state.session_time_data = pd.DataFrame(columns=TIME_DATA_COLUMNS.copy())
 
 # --- Helper functions ---
-def _find_col(df: pd.DataFrame, candidates):
-    for c in candidates:
-        if c in df.columns:
-            return c
-    return None
-
 def _pad_area(val: object) -> str:
     """Ensure area is 3 digits with zero padding"""
     return _normalize_job_area_value(val, blank_value="000")
-
-def _clean_text_value(raw_value) -> str:
-    if raw_value is None:
-        return ""
-    try:
-        if pd.isna(raw_value):
-            return ""
-    except Exception:
-        pass
-    text = str(raw_value).strip()
-    return "" if text.lower() in {"nan", "none"} else text
 
 def _is_truthy(value) -> bool:
     """Return True if the value represents an affirmative flag."""
@@ -1215,13 +1250,13 @@ if add_line_clicked:
                 for _, row in _emp_df.iterrows():
                     name = str(row.get(EMP_NAME_COL, ""))
                     employee_lookup[name] = {
-                        'emp_num': str(row.get("Person Number", "") or ""),
-                        'trade': str(row.get("Override Trade Class", "") or "") or str(row.get("Trade Class", "") or ""),
-                        'premium': str(row.get("Premium Rate", "") or ""),
-                        'subsistence': str(row.get("Subsistence Rate", "") or ""),
-                        'travel': str(row.get("Travel Rate", "") or ""),
-                        'indirect': str(row.get("Indirect / Direct", "")).strip().upper() == "INDIRECT",
-                        'night': _normalize_night_flag(row.get("Night Shift", ""))
+                        'emp_num': _get_employee_list_value(row, ["Person Number", "Employee Number"], 1),
+                        'trade': _get_employee_list_value(row, ["Override Trade Class"], 4) or _get_employee_list_value(row, ["Trade Class"]),
+                        'premium': _get_employee_list_value(row, ["Premium Rate", "Premium"], 8),
+                        'subsistence': _get_employee_list_value(row, ["Subsistence Rate", "Subsistence"], 9),
+                        'travel': _get_employee_list_value(row, ["Travel Rate", "Travel"], 10),
+                        'indirect': _get_employee_list_value(row, ["Indirect / Direct", "Indirect Direct"], 3).strip().upper() == "INDIRECT",
+                        'night': _get_employee_list_value(row, ["Night Shift", "NightShift", "Nightshift", "Night"], 7)
                     }
             
             new_rows = []
@@ -1669,9 +1704,9 @@ if user_type.upper() == "ADMIN":
                                             'indirect': str(emp_row.get("Indirect / Direct", "")).strip().upper() == "INDIRECT",
                                             'override_trade_class': str(emp_row.get("Override Trade Class", "") or ""),
                                             'truck': _get_employee_truck(emp_row),
-                                            'premium_rate': str(emp_row.get("Premium Rate", "") or ""),
-                                            'subsistence_rate': str(emp_row.get("Subsistence Rate", "") or ""),
-                                            'travel_rate': str(emp_row.get("Travel Rate", "") or ""),
+                                            'premium_rate': _get_employee_list_value(emp_row, ["Premium Rate", "Premium"], 8),
+                                            'subsistence_rate': _get_employee_list_value(emp_row, ["Subsistence Rate", "Subsistence"], 9),
+                                            'travel_rate': _get_employee_list_value(emp_row, ["Travel Rate", "Travel"], 10),
                                             'post_to_payroll': _get_employee_post_to_payroll(emp_row),
                                             'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip()
                                         }
@@ -1835,9 +1870,9 @@ if user_type.upper() == "ADMIN":
                                         employee_info[name] = {
                                             'indirect': str(emp_row.get("Indirect / Direct", "")).strip().upper() == "INDIRECT",
                                             'truck': _get_employee_truck(emp_row),
-                                            'premium_rate': str(emp_row.get("Premium Rate", "") or "").strip(),
-                                            'subsistence': str(emp_row.get("Subsistence Rate", "") or "").strip(),
-                                            'travel_rate': str(emp_row.get("Travel Rate", "") or "").strip(),
+                                            'premium_rate': _get_employee_list_value(emp_row, ["Premium Rate", "Premium"], 8),
+                                            'subsistence': _get_employee_list_value(emp_row, ["Subsistence Rate", "Subsistence"], 9),
+                                            'travel_rate': _get_employee_list_value(emp_row, ["Travel Rate", "Travel"], 10),
                                             'post_to_payroll': _get_employee_post_to_payroll(emp_row),
                                             'night_shift': _get_employee_night_shift(emp_row),
                                             'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip()
