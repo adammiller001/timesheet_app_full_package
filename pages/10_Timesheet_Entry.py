@@ -1358,7 +1358,15 @@ try:
     st.caption(f"Showing {filtered_entries} of {total_entries} total entries for {date_val}")
 
     if not filtered_data.empty:
-        st.dataframe(filtered_data, use_container_width=True, hide_index=True)
+        display_data = filtered_data.copy()
+        if "Job Area" in display_data.columns:
+            display_data["Job Area"] = display_data["Job Area"].map(_normalize_job_area_value).astype(str)
+        st.dataframe(
+            display_data,
+            use_container_width=True,
+            hide_index=True,
+            column_config={"Job Area": st.column_config.TextColumn("Job Area")},
+        )
 
         # Only show Delete Entries section to Admin users
         if user_type.upper() == "ADMIN":

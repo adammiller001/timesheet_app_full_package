@@ -19,9 +19,12 @@ from requests.exceptions import HTTPError
 try:  # gspread is optional; fall back to raw API calls when unavailable
     import gspread
     from gspread.exceptions import APIError
+    from gspread.utils import DateTimeOption, ValueRenderOption
     GSPREAD_AVAILABLE = True
 except ImportError:  # pragma: no cover - environment without gspread
     gspread = None
+    DateTimeOption = None
+    ValueRenderOption = None
 
     class APIError(Exception):
         """Placeholder used when gspread is not installed."""
@@ -40,6 +43,16 @@ def _normalize_title(name: str) -> str:
     if not name:
         return ""
     return ''.join(ch for ch in str(name).strip().lower() if ch.isalnum())
+
+
+def _values_to_dataframe(values: List[List[Any]]) -> pd.DataFrame:
+    if not values:
+        return pd.DataFrame()
+    headers = [str(col).strip() for col in values[0]]
+    rows = values[1:]
+    width = len(headers)
+    normalized_rows = [(row + ["" for _ in range(width - len(row))])[:width] for row in rows]
+    return pd.DataFrame(normalized_rows, columns=headers)
 
 
 class GoogleSheetsManager:
@@ -221,8 +234,11 @@ class GoogleSheetsManager:
         # gspread path --------------------------------------------------
         if gspread is not None and hasattr(worksheet, "get_all_records"):
             try:
-                data = worksheet.get_all_records(numericise_ignore=["all"])
-                df = pd.DataFrame(data)
+                values = worksheet.get_all_values(
+                    value_render_option=ValueRenderOption.formatted,
+                    date_time_render_option=DateTimeOption.formatted_string,
+                )
+                df = _values_to_dataframe(values)
             except APIError as exc:
                 if exc.response.status_code == 429:
                     cache_entry = self._data_cache.get(cache_key)
@@ -252,10 +268,7 @@ class GoogleSheetsManager:
                 values = response.json().get("values", [])
                 if not values:
                     return pd.DataFrame()
-                headers = [str(col).strip() for col in values[0]]
-                rows = values[1:]
-                normalized_rows = [row + ["" for _ in range(len(headers) - len(row))] for row in rows]
-                df = pd.DataFrame(normalized_rows, columns=headers)
+                df = _values_to_dataframe(values)
             except HTTPError as exc:
                 st.error(f"Failed to read worksheet '{worksheet_name}': {exc}")
                 return pd.DataFrame()
