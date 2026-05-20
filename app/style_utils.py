@@ -48,7 +48,7 @@ def apply_app_theme(page_width: int = 1120):
         div[data-testid="stCaptionContainer"] {{
             color: var(--ptw-muted) !important;
         }}
-        label[data-testid="stWidgetLabel"] {{
+        label[data-testid="stWidgetLabel"]:not([aria-hidden="true"]) {{
             align-items: center;
             background: var(--ptw-blue);
             border: 1px solid var(--ptw-blue-dark);
@@ -62,7 +62,7 @@ def apply_app_theme(page_width: int = 1120):
             padding: 0 7px;
             width: 100%;
         }}
-        label[data-testid="stWidgetLabel"] p {{
+        label[data-testid="stWidgetLabel"]:not([aria-hidden="true"]) p {{
             color: #ffffff !important;
             font-size: 13px !important;
             font-weight: 700 !important;
