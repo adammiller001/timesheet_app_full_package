@@ -650,32 +650,11 @@ def _apply_legacy_timesheet_skin():
             font-weight: 700;
             margin: 0 0 18px 0;
         }
-        .legacy-row-label {
-            align-items: center;
-            background: #304d9a;
-            border: 1px solid #223a7a;
-            color: #ffffff;
-            display: flex;
-            font-size: 13px;
-            font-weight: 700;
-            height: 28px;
-            line-height: 1;
-            padding: 0 7px;
-            width: 100%;
-        }
         .legacy-spacer {
             height: 4px;
         }
         .legacy-action-row {
             padding-top: 6px;
-        }
-        label[data-testid="stWidgetLabel"],
-        div[data-testid="stWidgetLabel"] {
-            display: none !important;
-            height: 0 !important;
-            margin: 0 !important;
-            min-height: 0 !important;
-            padding: 0 !important;
         }
         div[data-testid="stDateInput"] input,
         div[data-testid="stTextInput"] input,
@@ -707,10 +686,6 @@ def _apply_legacy_timesheet_skin():
         """,
         unsafe_allow_html=True,
     )
-
-
-def _legacy_label(text: str):
-    st.markdown(f'<div class="legacy-row-label">{text}</div>', unsafe_allow_html=True)
 
 
 def _legacy_spacer():
@@ -876,21 +851,18 @@ if False:
 if "date_val" not in st.session_state:
     st.session_state.date_val = pd.Timestamp.today().date()
 
-date_cols = st.columns([1.25, 0.78, 0.58, 3.9])
+date_cols = st.columns([0.78, 0.58, 4.9])
 with date_cols[0]:
-    _legacy_label("Date")
-with date_cols[2]:
-    if st.button("Today", key="date_today_button"):
-        st.session_state.date_val = pd.Timestamp.today().date()
-        st.rerun()
-with date_cols[1]:
     date_val = st.date_input(
         "Date",
         value=st.session_state.date_val,
         format="YYYY/MM/DD",
         key="date_val",
-        label_visibility="collapsed",
     )
+with date_cols[1]:
+    if st.button("Today", key="date_today_button"):
+        st.session_state.date_val = pd.Timestamp.today().date()
+        st.rerun()
 _legacy_spacer()
 
 # Form reset mechanism
@@ -1035,18 +1007,13 @@ if not job_options:
     else:
         st.warning(f"No active jobs found. Check the Job Numbers sheet and ensure new rows are marked active (column G). Rows fetched: {job_total_rows}, active flagged: {job_active_rows}.")
 
-job_cols = st.columns([1.25, 4.9])
-with job_cols[0]:
-    _legacy_label("Job")
-with job_cols[1]:
-    job_choice = st.selectbox(
-        "Job Number - Area Number - Description",
-        job_options,
-        index=None,
-        placeholder="Select a job...",
-        key=f"job_choice_{st.session_state.form_counter}",
-        label_visibility="collapsed",
-    )
+job_choice = st.selectbox(
+    "Job Number - Area Number - Description",
+    job_options,
+    index=None,
+    placeholder="Select a job...",
+    key=f"job_choice_{st.session_state.form_counter}",
+)
 _legacy_spacer()
 
 
@@ -1096,18 +1063,13 @@ if not cost_options:
     else:
         st.warning(f"No active cost codes found. Check the Cost Codes sheet and ensure new rows are marked active (column C). Rows fetched: {cost_total_rows}, active flagged: {cost_active_rows}.")
 
-cost_cols = st.columns([1.25, 4.9])
-with cost_cols[0]:
-    _legacy_label("Cost Code")
-with cost_cols[1]:
-    cost_choice = st.selectbox(
-        "Cost Code - Description",
-        cost_options,
-        index=None,
-        placeholder="Select a cost code...",
-        key=f"cost_choice_{st.session_state.form_counter}",
-        label_visibility="collapsed",
-    )
+cost_choice = st.selectbox(
+    "Cost Code - Description",
+    cost_options,
+    index=None,
+    placeholder="Select a cost code...",
+    key=f"cost_choice_{st.session_state.form_counter}",
+)
 _legacy_spacer()
 
 
@@ -1145,18 +1107,13 @@ if not _employee_options:
     else:
         st.warning(f"No active employees available. Rows fetched: {employee_total_rows}, active flagged: {employee_active_rows}.")
 
-employee_cols = st.columns([1.25, 4.9])
-with employee_cols[0]:
-    _legacy_label("Employee")
-with employee_cols[1]:
-    selected_employees = st.multiselect(
-        "Employees",
-        options=_employee_options,
-        default=[],
-        placeholder="Select one or more employees...",
-        key=f"selected_employees_{st.session_state.form_counter}",
-        label_visibility="collapsed",
-    )
+selected_employees = st.multiselect(
+    "Employees",
+    options=_employee_options,
+    default=[],
+    placeholder="Select one or more employees...",
+    key=f"selected_employees_{st.session_state.form_counter}",
+)
 _legacy_spacer()
 
 
@@ -1178,16 +1135,13 @@ def night_flag_for(_name: str) -> str:
         return ""
 
 # --- Hours Input ---
-rt_cols = st.columns([1.25, 0.78, 4.12])
+rt_cols = st.columns([0.78, 4.9])
 with rt_cols[0]:
-    _legacy_label("Regular Hours")
-with rt_cols[1]:
     rt_hours_raw = st.text_input(
         "RT Hours",
         value="0.00",
         placeholder="0.00",
         key=f"rt_hours_{st.session_state.form_counter}",
-        label_visibility="collapsed",
     )
 rt_hours = _parse_hours_input(rt_hours_raw)
 rt_hours_valid = True
@@ -1203,16 +1157,13 @@ else:
     rt_hours_value = rt_hours if rt_hours_valid else 0.0
 _legacy_spacer()
 
-ot_cols = st.columns([1.25, 0.78, 4.12])
+ot_cols = st.columns([0.78, 4.9])
 with ot_cols[0]:
-    _legacy_label("Overtime")
-with ot_cols[1]:
     ot_hours_raw = st.text_input(
         "OT Hours",
         value="0.00",
         placeholder="0.00",
         key=f"ot_hours_{st.session_state.form_counter}",
-        label_visibility="collapsed",
     )
 ot_hours = _parse_hours_input(ot_hours_raw)
 ot_hours_valid = True
@@ -1228,16 +1179,11 @@ else:
     ot_hours_value = ot_hours if ot_hours_valid else 0.0
 _legacy_spacer()
 
-comments_cols = st.columns([1.25, 4.9])
-with comments_cols[0]:
-    _legacy_label("Comments")
-with comments_cols[1]:
-    comments = st.text_input(
-        "Comments",
-        value="",
-        key=f"comments_{st.session_state.form_counter}",
-        label_visibility="collapsed",
-    )
+comments = st.text_input(
+    "Comments",
+    value="",
+    key=f"comments_{st.session_state.form_counter}",
+)
 _legacy_spacer()
 
 def _parse_job(choice: str):
@@ -1253,9 +1199,7 @@ hours_valid = rt_hours_valid and ot_hours_valid
 positive_hours = (rt_hours_value > 0) or (ot_hours_value > 0)
 add_disabled = not (job_choice and cost_choice and selected_employees and hours_valid and positive_hours)
 
-button_cols = st.columns([1.25, 4.9])
-with button_cols[1]:
-    add_line_clicked = st.button("Add line", type="primary", disabled=add_disabled)
+add_line_clicked = st.button("Add line", type="primary", disabled=add_disabled)
 
 if add_line_clicked:
     with st.spinner("Adding entries..."):
