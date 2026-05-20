@@ -851,7 +851,14 @@ if False:
 if "date_val" not in st.session_state:
     st.session_state.date_val = pd.Timestamp.today().date()
 
+
+def _set_date_to_today():
+    st.session_state.date_val = pd.Timestamp.today().date()
+
+
 date_cols = st.columns([0.78, 0.58, 4.9])
+with date_cols[1]:
+    st.button("Today", key="date_today_button", on_click=_set_date_to_today)
 with date_cols[0]:
     date_val = st.date_input(
         "Date",
@@ -859,10 +866,6 @@ with date_cols[0]:
         format="YYYY/MM/DD",
         key="date_val",
     )
-with date_cols[1]:
-    if st.button("Today", key="date_today_button"):
-        st.session_state.date_val = pd.Timestamp.today().date()
-        st.rerun()
 _legacy_spacer()
 
 # Form reset mechanism
