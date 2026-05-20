@@ -905,8 +905,8 @@ if "session_time_data" not in st.session_state:
 
 # --- Helper functions ---
 def _pad_area(val: object) -> str:
-    """Ensure area is 3 digits with zero padding"""
-    return _normalize_job_area_value(val, blank_value="000")
+    """Preserve the Job Numbers sheet area value as text."""
+    return _normalize_job_area_value(val)
 
 def _is_truthy(value) -> bool:
     """Return True if the value represents an affirmative flag."""
@@ -930,7 +930,7 @@ def _build_job_options_local(df: pd.DataFrame):
         "Job Number", "JOB #", "Job #", "Job", "JobNumber", "Job No", "Job_No"
     ])
     area_c = _find_col(df, [
-        "Area Number", "AREA #", "Area #", "AREA#", "Area", "Area No"
+        "Area Number", "AREA #", "Area #", "AREA#", "Area", "Area No", "Job Area", "JobArea"
     ])
     desc_c = _find_col(df, [
         "Description", "DESCRIPTION", "PROJECT NAME", "Project Name", "Job Description", "Description of Work"
@@ -946,7 +946,7 @@ def _build_job_options_local(df: pd.DataFrame):
     out = []
     for _, row in df.iterrows():
         j = str(row.get(job_c, "") or "").strip()
-        a = _pad_area(row.get(area_c, "")) if area_c else "000"
+        a = _pad_area(row.get(area_c, "")) if area_c else ""
         d = str(row.get(desc_c, "") or "").strip() if desc_c else ""
         if j or a or d:
             label = f"{j} - {a} - {d}" if d else f"{j} - {a}"
@@ -987,10 +987,18 @@ def _load_active_job_options() -> tuple[list[str], int, int]:
             jobs_df = jobs_df.copy()
             total_rows = len(jobs_df)
             cols = list(jobs_df.columns)
-            job_col = cols[2] if len(cols) > 2 else cols[0]
-            area_col = cols[3] if len(cols) > 3 else cols[min(1, len(cols)-1)]
-            desc_col = cols[5] if len(cols) > 5 else cols[min(2, len(cols)-1)]
-            active_col = cols[6] if len(cols) > 6 else None
+            job_col = _find_col(jobs_df, [
+                "Job Number", "JOB #", "Job #", "Job", "JobNumber", "Job No", "Job_No"
+            ]) or (cols[2] if len(cols) > 2 else cols[0])
+            area_col = _find_col(jobs_df, [
+                "Area Number", "AREA #", "Area #", "AREA#", "Area", "Area No", "Job Area", "JobArea"
+            ]) or (cols[3] if len(cols) > 3 else cols[min(1, len(cols)-1)])
+            desc_col = _find_col(jobs_df, [
+                "Description", "DESCRIPTION", "PROJECT NAME", "Project Name", "Job Description", "Description of Work"
+            ]) or (cols[5] if len(cols) > 5 else cols[min(2, len(cols)-1)])
+            active_col = _find_col(jobs_df, [
+                "Active", "ACTIVE", "Is Active", "Enabled", "Status"
+            ]) or (cols[6] if len(cols) > 6 else None)
             if active_col and active_col in jobs_df.columns:
                 mask = jobs_df[active_col].apply(_is_truthy)
                 active_rows = int(mask.sum())
@@ -999,7 +1007,7 @@ def _load_active_job_options() -> tuple[list[str], int, int]:
             options = []
             for _, row in jobs_df.iterrows():
                 job = str(row.get(job_col, "") or "").strip()
-                area = _pad_area(row.get(area_col, "")) if area_col else "000"
+                area = _pad_area(row.get(area_col, "")) if area_col else ""
                 desc = str(row.get(desc_col, "") or "").strip() if desc_col else ""
                 if job or area or desc:
                     label = f"{job} - {area} - {desc}" if desc else f"{job} - {area}"
@@ -1270,7 +1278,7 @@ if add_line_clicked:
 
                 new_row = {
                     "Job Number": job_num,
-                    "Job Area": _normalize_job_area_value(job_area, blank_value="000"),
+                    "Job Area": _normalize_job_area_value(job_area),
                     "Date": date_str,
                     "Name": emp_name,
                     "Trade Class": emp_data['trade'],
@@ -1592,7 +1600,7 @@ if user_type.upper() == "ADMIN":
                     cost_code = str(entry.get('Cost Code', ''))
                     cost_desc = cost_code_descriptions.get(cost_code, '')
 
-                    job_display = f"{entry.get('Job Number', '')} - {str(entry.get('Job Area', '')).zfill(3)} - {entry.get('Description of work', '')}"
+                    job_display = f"{entry.get('Job Number', '')} - {_normalize_job_area_value(entry.get('Job Area', ''))} - {entry.get('Description of work', '')}"
 
                     ws.cell(row=row_num, column=5, value=cost_desc)  # E: Cost code description
                     ws.cell(row=row_num, column=6, value=cost_code)  # F: Cost code
@@ -1607,7 +1615,7 @@ if user_type.upper() == "ADMIN":
                     cost_code = str(entry.get('Cost Code', ''))
                     cost_desc = cost_code_descriptions.get(cost_code, '')
 
-                    job_display_2 = f"{entry.get('Job Number', '')} - {str(entry.get('Job Area', '')).zfill(3)} - {entry.get('Description of work', '')}"
+                    job_display_2 = f"{entry.get('Job Number', '')} - {_normalize_job_area_value(entry.get('Job Area', ''))} - {entry.get('Description of work', '')}"
 
                     ws.cell(row=row_num, column=11, value=cost_desc)  # K: Cost code description
                     ws.cell(row=row_num, column=12, value=cost_code)  # L: Cost code
@@ -1627,7 +1635,7 @@ if user_type.upper() == "ADMIN":
                         if i % 2 == 0:  # First entry of new row (columns E-I)
                             cost_code = str(entry.get('Cost Code', ''))
                             cost_desc = cost_code_descriptions.get(cost_code, '')
-                            job_display = f"{entry.get('Job Number', '')} - {str(entry.get('Job Area', '')).zfill(3)} - {entry.get('Description of work', '')}"
+                            job_display = f"{entry.get('Job Number', '')} - {_normalize_job_area_value(entry.get('Job Area', ''))} - {entry.get('Description of work', '')}"
 
                             ws.cell(row=current_extra_row, column=1, value=emp_name)
                             ws.cell(row=current_extra_row, column=2, value=trade_class)
@@ -1643,7 +1651,7 @@ if user_type.upper() == "ADMIN":
                         else:  # Second entry of row (columns K-O)
                             cost_code = str(entry.get('Cost Code', ''))
                             cost_desc = cost_code_descriptions.get(cost_code, '')
-                            job_display = f"{entry.get('Job Number', '')} - {str(entry.get('Job Area', '')).zfill(3)} - {entry.get('Description of work', '')}"
+                            job_display = f"{entry.get('Job Number', '')} - {_normalize_job_area_value(entry.get('Job Area', ''))} - {entry.get('Description of work', '')}"
 
                             ws.cell(row=current_extra_row, column=11, value=cost_desc)
                             ws.cell(row=current_extra_row, column=12, value=cost_code)
@@ -1802,7 +1810,7 @@ if user_type.upper() == "ADMIN":
                                 job_groups = {}
                                 for _, row in filtered_data.iterrows():
                                     job_num = str(row.get('Job Number', ''))
-                                    job_area = str(row.get('Job Area', '')).zfill(3)
+                                    job_area = _normalize_job_area_value(row.get('Job Area', ''))
                                     job_desc = str(row.get('Description of work', ''))
                                     job_key = f"{job_num} - {job_area} - {job_desc}"
 
@@ -1929,7 +1937,7 @@ if user_type.upper() == "ADMIN":
                                             clean_value(row.get('Trade Class', '')),      # E - Trade Class
                                             post_to_payroll,                   # F - Post To Payroll
                                             clean_value(row.get('Cost Code', '')),        # G - Cost Code
-                                            str(row.get('Job Area', '')).zfill(3),        # H - Job Area (3 digits)
+                                            _normalize_job_area_value(row.get('Job Area', '')),  # H - Job Area
                                             '',                                # I - Empty
                                             '211',                             # J - Pay Code (will be changed per entry)
                                             0.0,                               # K - Hours (will be set per entry)
@@ -1998,6 +2006,10 @@ if user_type.upper() == "ADMIN":
 
             if st.button("Create & Download Exports", type="primary"):
                 with st.spinner("Creating export package..."):
+                    fresh_time_data = smart_read_data("Time Data", force_refresh=True)
+                    if isinstance(fresh_time_data, pd.DataFrame) and not fresh_time_data.empty:
+                        time_data_for_export = _prepare_time_data_dataframe(_enrich_with_employee_details(fresh_time_data))
+                        st.session_state.session_time_data = time_data_for_export.copy()
                     zip_data = create_template_exports(date_val)
                     if zip_data:
                         st.download_button(

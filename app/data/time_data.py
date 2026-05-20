@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from numbers import Number
 from typing import Optional
-import re
 
 import pandas as pd
 
@@ -26,9 +26,6 @@ def normalize_job_area_value(value, blank_value: str = "") -> str:
     text = str(value).strip()
     if not text or text.lower() in {"nan", "none"}:
         return blank_value
-    match = re.search(r"\d+", text)
-    if match:
-        return match.group(0).zfill(3)
     return text
 
 
@@ -39,10 +36,13 @@ def normalize_sheet_value(value):
         return value.strip()
     if isinstance(value, bool):
         return "TRUE" if value else "FALSE"
-    if isinstance(value, (int, float)):
+    if isinstance(value, Number):
         if pd.isna(value):
             return ""
-        return ("{0:.15g}".format(float(value))).rstrip(".0") if float(value).is_integer() else "{0:.15g}".format(float(value))
+        number = float(value)
+        if number.is_integer():
+            return str(int(number))
+        return "{0:.15g}".format(number)
     if isinstance(value, pd.Timestamp):
         return value.strftime("%Y-%m-%d")
     if isinstance(value, datetime):

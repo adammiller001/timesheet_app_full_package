@@ -221,7 +221,7 @@ class GoogleSheetsManager:
         # gspread path --------------------------------------------------
         if gspread is not None and hasattr(worksheet, "get_all_records"):
             try:
-                data = worksheet.get_all_records()
+                data = worksheet.get_all_records(numericise_ignore=["all"])
                 df = pd.DataFrame(data)
             except APIError as exc:
                 if exc.response.status_code == 429:
@@ -243,7 +243,7 @@ class GoogleSheetsManager:
             range_name = quote(actual_name)
             url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{range_name}"
             params = {
-                "valueRenderOption": "UNFORMATTED_VALUE",
+                "valueRenderOption": "FORMATTED_VALUE",
                 "dateTimeRenderOption": "FORMATTED_STRING",
             }
             try:

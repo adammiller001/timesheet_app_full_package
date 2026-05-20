@@ -165,7 +165,7 @@ def _write_sheet(sheet_name: str, df: pd.DataFrame) -> bool:
     if manager is None:
         st.error("Google Sheets integration is not available.")
         return False
-    return bool(manager.write_worksheet(sheet_name, _normalize_for_sheet(df), sheet_id))
+    return bool(manager.write_worksheet(sheet_name, _normalize_for_sheet(df), sheet_id, value_input_option="RAW"))
 
 
 def _list_worksheet_titles() -> list[str]:
