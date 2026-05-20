@@ -10,13 +10,16 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from app.integrations.google_sheets import get_sheets_manager, read_timesheet_data
+from app.style_utils import apply_app_theme, apply_watermark
 
 PAGE_TITLE = "Construction Reporting"
 PAGE_ICON = "📊"
 
 st.set_page_config(page_title=PAGE_TITLE, page_icon=PAGE_ICON, layout="wide")
+apply_app_theme()
+apply_watermark()
 st.session_state["page_title"] = PAGE_TITLE
-st.session_state["page_header"] = f"{PAGE_ICON} {PAGE_TITLE}"
+st.session_state["page_header"] = PAGE_TITLE
 
 # Gate: require login and admin access
 if not st.session_state.get("authenticated", False):

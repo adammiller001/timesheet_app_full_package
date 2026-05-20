@@ -5,7 +5,7 @@ from typing import Optional
 import pandas as pd
 import streamlit as st
 
-from app.style_utils import apply_watermark
+from app.style_utils import apply_app_theme, apply_watermark
 
 try:
     from app.integrations.google_sheets import get_sheets_manager
@@ -17,6 +17,7 @@ except Exception:
 
 
 st.set_page_config(page_title="Admin", layout="wide")
+apply_app_theme()
 apply_watermark()
 
 EMAIL_COLUMN_CANDIDATES = [

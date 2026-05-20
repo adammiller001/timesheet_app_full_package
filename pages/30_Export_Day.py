@@ -4,6 +4,11 @@ import pandas as pd
 import streamlit as st
 
 from app.features.export_daily_time import export_daily_time
+from app.style_utils import apply_app_theme, apply_watermark
+
+st.set_page_config(page_title="Export Day", page_icon=":outbox_tray:", layout="wide")
+apply_app_theme()
+apply_watermark()
 
 # Gate: require login
 if not st.session_state.get("authenticated", False):
@@ -20,7 +25,6 @@ st.sidebar.info(f"Signed in as: {user}")
 
 ROOT = Path(__file__).resolve().parents[1]
 
-st.set_page_config(page_title="Export Day", page_icon="📤", layout="wide")
 st.title("Export Day")
 
 # ---------- helpers ----------

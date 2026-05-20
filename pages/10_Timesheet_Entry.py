@@ -22,10 +22,11 @@ from app.data.time_data import (
     normalize_sheet_value,
     prepare_time_data_dataframe,
 )
-from app.style_utils import apply_watermark
+from app.style_utils import apply_app_theme, apply_watermark
 from datetime import datetime, date
 from typing import Optional
 
+apply_app_theme()
 apply_watermark()
 
 # Try to use your helpers; fall back gracefully if not present

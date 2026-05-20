@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 from app.auth_memory import apply_login_email_memory, remember_login_email
-from app.style_utils import apply_watermark
+from app.style_utils import apply_app_theme, apply_watermark
 
 try:
     from app.integrations.google_sheets import read_timesheet_data, get_sheets_manager
@@ -19,6 +19,7 @@ st.set_page_config(
     layout="wide"
 )
 
+apply_app_theme()
 apply_watermark()
 
 
@@ -155,7 +156,7 @@ if "user_email" not in st.session_state:
 
 # Show login form if not authenticated
 if not st.session_state.get("authenticated", False):
-    st.title("🔐 Field Reports Suite")
+    st.title("Field Reports Suite")
     st.markdown("### Please sign in with your work email")
     remembered_email = apply_login_email_memory()
     if remembered_email and "login_email_input" not in st.session_state:
@@ -184,16 +185,16 @@ if not st.session_state.get("authenticated", False):
 
 else:
     # User is authenticated - show main app
-    st.title("📊 Field Reports Suite")
+    st.title("Field Reports Suite")
 
     # Show user info in sidebar
     with st.sidebar:
         st.markdown("---")
-        st.markdown(f"**👤 Signed in as:**")
-        st.markdown(f"📧 {st.session_state['user_email']}")
-        st.markdown(f"🏷️ {st.session_state['user_type']}")
+        st.markdown("**Signed in as:**")
+        st.markdown(st.session_state["user_email"])
+        st.markdown(st.session_state["user_type"])
 
-        if st.button("🚪 Sign Out"):
+        if st.button("Sign Out"):
             st.session_state["user_email"] = None
             st.session_state["user_type"] = None
             st.session_state["authenticated"] = False
