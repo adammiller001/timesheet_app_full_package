@@ -669,6 +669,14 @@ def _apply_legacy_timesheet_skin():
         .legacy-action-row {
             padding-top: 6px;
         }
+        label[data-testid="stWidgetLabel"],
+        div[data-testid="stWidgetLabel"] {
+            display: none !important;
+            height: 0 !important;
+            margin: 0 !important;
+            min-height: 0 !important;
+            padding: 0 !important;
+        }
         div[data-testid="stDateInput"] input,
         div[data-testid="stTextInput"] input,
         div[data-baseweb="select"] > div,
