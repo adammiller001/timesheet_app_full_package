@@ -48,7 +48,7 @@ def test_batch_update_values_uses_google_values_batch_endpoint(monkeypatch):
     assert len(posted["json"]["data"]) == 2
 
 
-def test_export_sheet_pdf_can_repeat_frozen_rows(monkeypatch):
+def test_export_sheet_pdf_can_repeat_frozen_rows_and_set_margins(monkeypatch):
     captured = {}
 
     class FakeResponse:
@@ -66,10 +66,19 @@ def test_export_sheet_pdf_can_repeat_frozen_rows(monkeypatch):
     manager = GoogleSheetsManager()
     monkeypatch.setattr(manager, "_ensure_session", lambda: FakeSession())
 
-    assert manager.export_sheet_pdf("sheet-id", 123, repeat_frozen_rows=True) == b"pdf"
+    assert manager.export_sheet_pdf(
+        "sheet-id",
+        123,
+        repeat_frozen_rows=True,
+        margins={"top": 0.25, "bottom": 0.25, "left": 0.25, "right": 0.25},
+    ) == b"pdf"
     assert captured["url"] == "https://docs.google.com/spreadsheets/d/sheet-id/export"
     assert captured["params"]["gid"] == "123"
     assert captured["params"]["fzr"] == "true"
+    assert captured["params"]["top_margin"] == "0.25"
+    assert captured["params"]["bottom_margin"] == "0.25"
+    assert captured["params"]["left_margin"] == "0.25"
+    assert captured["params"]["right_margin"] == "0.25"
 
 
 def test_export_sheet_pdf_retries_google_rate_limit(monkeypatch):

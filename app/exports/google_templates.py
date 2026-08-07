@@ -504,8 +504,16 @@ def build_sign_in_sheet_pdf(
                 })
         manager.batch_update(sheet_id, hide_requests)
         time.sleep(0.35)
+        narrow_margins = {"top": 0.25, "bottom": 0.25, "left": 0.25, "right": 0.25}
         for _, temp_sheet_id, _ in temp_sheets:
-            pdf_parts.append(manager.export_sheet_pdf(sheet_id, temp_sheet_id, repeat_frozen_rows=True))
+            pdf_parts.append(
+                manager.export_sheet_pdf(
+                    sheet_id,
+                    temp_sheet_id,
+                    repeat_frozen_rows=True,
+                    margins=narrow_margins,
+                )
+            )
     finally:
         if created_sheet_ids:
             delete_requests = [{"deleteSheet": {"sheetId": temp_sheet_id}} for temp_sheet_id in created_sheet_ids]

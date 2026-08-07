@@ -163,8 +163,8 @@ def test_sign_in_sheet_pdf_batches_google_updates(monkeypatch):
             self.single_value_calls.append((range_name, values))
             return {}
 
-        def export_sheet_pdf(self, spreadsheet_id, sheet_id, *, repeat_frozen_rows=False):
-            self.exported_sheet_ids.append((sheet_id, repeat_frozen_rows))
+        def export_sheet_pdf(self, spreadsheet_id, sheet_id, *, repeat_frozen_rows=False, margins=None):
+            self.exported_sheet_ids.append((sheet_id, repeat_frozen_rows, margins))
             return pdf_bytes(f"sheet {sheet_id}")
 
     fake_manager = FakeManager()
@@ -202,7 +202,10 @@ def test_sign_in_sheet_pdf_batches_google_updates(monkeypatch):
     assert len(fake_manager.batch_value_calls) == 1
     assert len(fake_manager.batch_value_calls[0]) == 6
     assert fake_manager.single_value_calls == []
-    assert fake_manager.exported_sheet_ids == [(201, True), (202, True)]
+    assert fake_manager.exported_sheet_ids == [
+        (201, True, {"top": 0.25, "bottom": 0.25, "left": 0.25, "right": 0.25}),
+        (202, True, {"top": 0.25, "bottom": 0.25, "left": 0.25, "right": 0.25}),
+    ]
 
 
 def test_pdf_image_print_html_renders_images_and_calls_print():

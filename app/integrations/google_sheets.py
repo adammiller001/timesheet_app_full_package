@@ -491,7 +491,14 @@ class GoogleSheetsManager:
         self._data_cache.clear()
         return response.json()
 
-    def export_sheet_pdf(self, spreadsheet_id: str, sheet_id: int, *, repeat_frozen_rows: bool = False) -> bytes:
+    def export_sheet_pdf(
+        self,
+        spreadsheet_id: str,
+        sheet_id: int,
+        *,
+        repeat_frozen_rows: bool = False,
+        margins: Optional[Dict[str, float]] = None,
+    ) -> bytes:
         """Export one Google Sheet tab as a PDF using Google Sheets rendering."""
         session = self._ensure_session()
         if session is None or not spreadsheet_id:
@@ -509,6 +516,16 @@ class GoogleSheetsManager:
             "gridlines": "false",
             "fzr": "true" if repeat_frozen_rows else "false",
         }
+        if margins:
+            margin_params = {
+                "top": "top_margin",
+                "bottom": "bottom_margin",
+                "left": "left_margin",
+                "right": "right_margin",
+            }
+            for key, param_name in margin_params.items():
+                if key in margins:
+                    params[param_name] = str(margins[key])
         max_attempts = 5
         for attempt in range(max_attempts):
             response = session.get(url, params=params)
