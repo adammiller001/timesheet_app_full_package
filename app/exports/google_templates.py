@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from html import escape
 from datetime import date, datetime
 from typing import Iterable
 
@@ -64,7 +65,25 @@ def get_google_template_workbook_bytes(spreadsheet_id: str | None = None) -> byt
     sheet_id = str(spreadsheet_id or st.secrets.get("google_sheets_id", "")).strip()
     if not sheet_id:
         raise RuntimeError("Google Sheets ID is not configured.")
-    return get_sheets_manager().export_spreadsheet_xlsx(sheet_id)
+    manager = get_sheets_manager()
+    exporter = getattr(manager, "export_spreadsheet_xlsx", None)
+    if callable(exporter):
+        return exporter(sheet_id)
+
+    session_getter = getattr(manager, "_ensure_session", None)
+    if not callable(session_getter):
+        raise RuntimeError("Google Sheets connection is not configured.")
+    session = session_getter()
+    if session is None:
+        raise RuntimeError("Google Sheets connection is not configured.")
+
+    url = f"https://www.googleapis.com/drive/v3/files/{sheet_id}/export"
+    params = {
+        "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+    response = session.get(url, params=params)
+    response.raise_for_status()
+    return response.content
 
 
 def load_template_sheet_workbook(template_bytes: bytes, sheet_candidates: Iterable[str]) -> tuple[Workbook, Worksheet]:
@@ -114,20 +133,7 @@ def workbook_to_bytes(wb: Workbook) -> bytes:
     return buffer.getvalue()
 
 
-def build_sign_in_sheet_workbook(
-    template_bytes: bytes,
-    employees_df: pd.DataFrame,
-    sign_in_date: date | datetime,
-) -> tuple[bytes, int]:
-    """Fill the Sign In Sheet tab from active Employee List rows."""
-    wb, ws = load_template_sheet_workbook(template_bytes, ("Sign In Sheet", "SignInSheet"))
-
-    if isinstance(sign_in_date, datetime):
-        sign_in_value = sign_in_date.date()
-    else:
-        sign_in_value = sign_in_date
-    ws["D6"] = sign_in_value
-
+def _sign_in_rows(employees_df: pd.DataFrame) -> list[tuple[str, str, str]]:
     if employees_df is None:
         employees_df = pd.DataFrame()
     employees_df = employees_df.copy()
@@ -141,23 +147,195 @@ def build_sign_in_sheet_workbook(
     if active_col:
         employees_df = employees_df[employees_df[active_col].apply(_is_truthy)]
 
-    for row_num in range(11, 75):
-        ws.row_dimensions[row_num].hidden = False
-        for col_num in range(1, 6):
-            ws.cell(row=row_num, column=col_num, value=None)
-
-    rows_written = 0
+    rows: list[tuple[str, str, str]] = []
     for _, employee in employees_df.iterrows():
-        if rows_written >= 64:
+        if len(rows) >= 64:
             break
-        target_row = 11 + rows_written
-        ws.cell(target_row, 1, _clean_text(employee.get(company_col, "")) if company_col else "")
-        ws.cell(target_row, 2, _clean_text(employee.get(name_col, "")) if name_col else "")
-        ws.cell(target_row, 3, _clean_text(employee.get(craft_col, "")) if craft_col else "")
-        rows_written += 1
+        rows.append((
+            _clean_text(employee.get(company_col, "")) if company_col else "",
+            _clean_text(employee.get(name_col, "")) if name_col else "",
+            _clean_text(employee.get(craft_col, "")) if craft_col else "",
+        ))
+    rows.extend([("", "", "") for _ in range(min(5, max(64 - len(rows), 0)))])
+    return rows
 
-    first_hidden_row = 11 + rows_written + 5
-    for row_num in range(max(first_hidden_row, 11), 75):
-        ws.row_dimensions[row_num].hidden = True
 
-    return workbook_to_bytes(wb), rows_written
+def build_sign_in_print_html(
+    employees_df: pd.DataFrame,
+    sign_in_dates: Iterable[date | datetime],
+    *,
+    auto_print: bool = True,
+) -> tuple[str, int, int]:
+    """Build browser-printable sign-in sheets, one page per requested date."""
+    dates = list(sign_in_dates)
+    if not dates:
+        raise ValueError("At least one sign in date is required.")
+
+    rows = _sign_in_rows(employees_df)
+    active_count = sum(1 for company, name, craft in rows if company or name or craft)
+    page_blocks = []
+    for sign_in_date in dates:
+        if isinstance(sign_in_date, datetime):
+            sign_in_date = sign_in_date.date()
+        table_rows = "\n".join(
+            "<tr>"
+            f"<td>{escape(company)}</td>"
+            f"<td>{escape(name)}</td>"
+            f"<td>{escape(craft)}</td>"
+            "<td></td>"
+            "<td></td>"
+            "</tr>"
+            for company, name, craft in rows
+        )
+        page_blocks.append(
+            "<section class='sign-page'>"
+            "<div class='sheet-head'>"
+            "<h1>Sign In Sheet</h1>"
+            f"<div class='date-box'><span>Date</span><strong>{escape(sign_in_date.strftime('%Y/%m/%d'))}</strong></div>"
+            "</div>"
+            "<table>"
+            "<thead><tr>"
+            "<th>Company Name</th>"
+            "<th>Employee Name</th>"
+            "<th>Craft / Certification</th>"
+            "<th>Signature</th>"
+            "<th>Initials</th>"
+            "</tr></thead>"
+            f"<tbody>{table_rows}</tbody>"
+            "</table>"
+            "</section>"
+        )
+
+    script = ""
+    if auto_print:
+        script = """
+        <script>
+        window.addEventListener("load", function () {
+            setTimeout(function () {
+                window.focus();
+                window.print();
+            }, 250);
+        });
+        </script>
+        """
+
+    html = f"""
+    <!doctype html>
+    <html>
+    <head>
+    <meta charset="utf-8">
+    <style>
+        @page {{
+            size: letter portrait;
+            margin: 0.35in;
+        }}
+        * {{
+            box-sizing: border-box;
+        }}
+        body {{
+            margin: 0;
+            color: #111827;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #ffffff;
+        }}
+        .screen-controls {{
+            margin: 0;
+            padding: 10px 12px;
+            border: 1px solid #d1d5db;
+            background: #f9fafb;
+            font-size: 14px;
+        }}
+        .screen-controls button {{
+            margin-left: 8px;
+            padding: 6px 10px;
+            border: 1px solid #9ca3af;
+            background: #ffffff;
+            cursor: pointer;
+        }}
+        .sign-page {{
+            width: 100%;
+            min-height: 10.25in;
+            page-break-after: always;
+            padding: 0.05in;
+        }}
+        .sign-page:last-child {{
+            page-break-after: auto;
+        }}
+        .sheet-head {{
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            margin-bottom: 14px;
+        }}
+        h1 {{
+            margin: 0;
+            font-size: 24px;
+            line-height: 1.1;
+        }}
+        .date-box {{
+            display: grid;
+            grid-template-columns: 0.85in 1.45in;
+            border: 1px solid #111827;
+            min-height: 0.32in;
+            align-items: center;
+        }}
+        .date-box span {{
+            height: 100%;
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
+            color: #ffffff;
+            background: #304d9a;
+            font-weight: 700;
+            font-size: 12px;
+        }}
+        .date-box strong {{
+            padding: 0 8px;
+            font-size: 13px;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            font-size: 11px;
+        }}
+        th {{
+            color: #ffffff;
+            background: #304d9a;
+            border: 1px solid #111827;
+            padding: 5px 6px;
+            text-align: left;
+        }}
+        td {{
+            border: 1px solid #9ca3af;
+            height: 0.25in;
+            padding: 3px 6px;
+            vertical-align: middle;
+        }}
+        th:nth-child(1), td:nth-child(1) {{ width: 20%; }}
+        th:nth-child(2), td:nth-child(2) {{ width: 28%; }}
+        th:nth-child(3), td:nth-child(3) {{ width: 24%; }}
+        th:nth-child(4), td:nth-child(4) {{ width: 20%; }}
+        th:nth-child(5), td:nth-child(5) {{ width: 8%; }}
+        @media print {{
+            .screen-controls {{
+                display: none;
+            }}
+            body {{
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }}
+        }}
+    </style>
+    </head>
+    <body>
+    <div class="screen-controls">
+        The print dialog should open automatically.
+        <button onclick="window.print()">Open print dialog</button>
+    </div>
+    {''.join(page_blocks)}
+    {script}
+    </body>
+    </html>
+    """
+    return html, active_count, len(dates)

@@ -2,9 +2,13 @@ import datetime as dt
 import io
 
 import pandas as pd
-from openpyxl import Workbook, load_workbook
+from openpyxl import Workbook
 
-from app.exports.google_templates import build_sign_in_sheet_workbook, load_template_sheet_workbook
+from app.exports.google_templates import (
+    build_sign_in_print_html,
+    get_google_template_workbook_bytes,
+    load_template_sheet_workbook,
+)
 
 
 def _template_bytes() -> bytes:
@@ -27,12 +31,34 @@ def test_load_template_sheet_workbook_keeps_requested_google_tab_only():
     assert wb.sheetnames == ["TimeEntries"]
 
 
-def test_sign_in_sheet_maps_active_employee_columns_l_m_n():
+def test_google_template_export_falls_back_to_existing_session(monkeypatch):
+    class FakeResponse:
+        content = b"xlsx-bytes"
+
+        def raise_for_status(self):
+            return None
+
+    class FakeSession:
+        def get(self, url, params):
+            assert url == "https://www.googleapis.com/drive/v3/files/sheet-id/export"
+            assert params["mimeType"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            return FakeResponse()
+
+    class FakeManager:
+        def _ensure_session(self):
+            return FakeSession()
+
+    monkeypatch.setattr("app.exports.google_templates.get_sheets_manager", lambda: FakeManager())
+
+    assert get_google_template_workbook_bytes("sheet-id") == b"xlsx-bytes"
+
+
+def test_sign_in_print_html_creates_one_print_page_per_date():
     employees = pd.DataFrame(
         [
-            ["EMPL", "S-MIL10", "ADAM MILLER", "Indirect", "CONM", "TM0122", "Y", "", "", "", "", "PTW", "Supervisor", "TRUE"],
-            ["EMPL", "72454", "ANDY LYNDS", "Direct", "EA2", "", "Y", "", "", "", "", "PTW", "Electrician", "FALSE"],
-            ["EMPL", "17446", "TRAVIS TYCHKOWSKY", "Direct", "SUP", "76025", "Y", "", "", "", "", "PTW", "Welder", "Y"],
+            ["EMPL", "S-MIL10", "ADAM MILLER", "", "", "", "", "", "", "", "", "PTW", "Supervisor", "TRUE"],
+            ["EMPL", "72454", "ANDY LYNDS", "", "", "", "", "", "", "", "", "PTW", "Electrician", "FALSE"],
+            ["EMPL", "17446", "TRAVIS TYCHKOWSKY", "", "", "", "", "", "", "", "", "PTW", "Welder", "Y"],
         ],
         columns=[
             "Time Record Type",
@@ -52,24 +78,19 @@ def test_sign_in_sheet_maps_active_employee_columns_l_m_n():
         ],
     )
 
-    output_bytes, rows_written = build_sign_in_sheet_workbook(
-        _template_bytes(),
+    html, active_count, sheet_count = build_sign_in_print_html(
         employees,
-        dt.date(2026, 5, 20),
+        [dt.date(2026, 8, 1), dt.date(2026, 8, 2)],
     )
 
-    wb = load_workbook(io.BytesIO(output_bytes))
-    ws = wb["Sign In Sheet"]
-
-    assert rows_written == 2
-    assert ws["D6"].value == dt.datetime(2026, 5, 20)
-    assert ws["A11"].value == "PTW"
-    assert ws["B11"].value == "ADAM MILLER"
-    assert ws["C11"].value == "Supervisor"
-    assert ws["A12"].value == "PTW"
-    assert ws["B12"].value == "TRAVIS TYCHKOWSKY"
-    assert ws["C12"].value == "Welder"
-    assert ws["A13"].value is None
-    assert ws.row_dimensions[17].hidden is False
-    assert ws.row_dimensions[18].hidden is True
-    assert ws.row_dimensions[74].hidden is True
+    assert active_count == 2
+    assert sheet_count == 2
+    assert html.count("class='sign-page'") == 2
+    assert "2026/08/01" in html
+    assert "2026/08/02" in html
+    assert "ADAM MILLER" in html
+    assert "TRAVIS TYCHKOWSKY" in html
+    assert "ANDY LYNDS" not in html
+    assert "Supervisor" in html
+    assert "Welder" in html
+    assert "window.print()" in html

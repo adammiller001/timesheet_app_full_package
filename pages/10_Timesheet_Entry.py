@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import io
 import zipfile
@@ -15,13 +16,13 @@ from app.data.time_data import (
     prepare_time_data_dataframe,
 )
 from app.exports.google_templates import (
-    build_sign_in_sheet_workbook,
+    build_sign_in_print_html,
     get_google_template_workbook_bytes,
     load_template_sheet_workbook,
     workbook_to_bytes,
 )
 from app.style_utils import apply_app_theme, apply_watermark
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional
 
 apply_app_theme()
@@ -693,6 +694,69 @@ def _legacy_spacer():
 _apply_legacy_timesheet_skin()
 st.markdown('<div class="legacy-entry-title">Timesheet Entry</div>', unsafe_allow_html=True)
 
+if "date_val" not in st.session_state:
+    st.session_state.date_val = pd.Timestamp.today().date()
+
+
+def _inclusive_date_range(start_date: date, end_date: date) -> list[date]:
+    days = (end_date - start_date).days
+    if days < 0:
+        return []
+    return [start_date + timedelta(days=offset) for offset in range(days + 1)]
+
+
+st.markdown("#### Sign In Sheets")
+sign_in_cols = st.columns([0.9, 0.9, 0.9, 2.8])
+with sign_in_cols[0]:
+    sign_in_start_date = st.date_input(
+        "Start Date",
+        value=st.session_state.date_val,
+        format="YYYY/MM/DD",
+        key="sign_in_start_date",
+    )
+with sign_in_cols[1]:
+    sign_in_end_date = st.date_input(
+        "End Date",
+        value=st.session_state.date_val,
+        format="YYYY/MM/DD",
+        key="sign_in_end_date",
+    )
+with sign_in_cols[2]:
+    st.markdown("<div style='height: 1.65rem;'></div>", unsafe_allow_html=True)
+    print_sign_in_clicked = st.button("Print Sign In Sheet", type="secondary", use_container_width=True)
+
+if print_sign_in_clicked:
+    sign_in_dates = _inclusive_date_range(sign_in_start_date, sign_in_end_date)
+    if not sign_in_dates:
+        st.error("End Date must be the same as or after Start Date.")
+    else:
+        with st.spinner("Preparing sign in sheets for printing..."):
+            try:
+                sign_in_employees = _fetch_sheet_dataframe("Employee List", ("Employees",), force_refresh=True)
+                sign_in_html, active_employee_count, sign_in_sheet_count = build_sign_in_print_html(
+                    sign_in_employees,
+                    sign_in_dates,
+                    auto_print=True,
+                )
+                st.session_state["sign_in_sheet_print_html"] = {
+                    "html": sign_in_html,
+                    "employee_count": active_employee_count,
+                    "sheet_count": sign_in_sheet_count,
+                    "start_date": sign_in_start_date.isoformat(),
+                    "end_date": sign_in_end_date.isoformat(),
+                }
+                st.success(
+                    f"Print view ready with {sign_in_sheet_count} sheet(s) "
+                    f"and {active_employee_count} active employee(s) per sheet."
+                )
+            except Exception as exc:
+                st.error(f"Could not prepare Sign In Sheet print view: {exc}")
+
+sign_in_print = st.session_state.pop("sign_in_sheet_print_html", None)
+if sign_in_print:
+    components.html(sign_in_print["html"], height=92, scrolling=False)
+
+_legacy_spacer()
 
 
 # Force fresh data reload if refresh was requested
@@ -844,11 +908,6 @@ if False:
         st.error(f"Cost codes debug error: {e}")
         import traceback
         st.code(traceback.format_exc())
-
-# --- Date ---
-if "date_val" not in st.session_state:
-    st.session_state.date_val = pd.Timestamp.today().date()
-
 
 def _set_date_to_today():
     st.session_state.date_val = pd.Timestamp.today().date()
@@ -1269,41 +1328,6 @@ if add_line_clicked:
                 
         except Exception as e:
             st.error(f"Could not save to Time Data: {e}")
-
-print_col, download_col = st.columns([1, 3])
-with print_col:
-    print_sign_in_clicked = st.button("Print Sign In Sheet", type="secondary")
-
-if print_sign_in_clicked:
-    with st.spinner("Creating sign in sheet..."):
-        try:
-            sign_in_template_bytes = get_google_template_workbook_bytes()
-            sign_in_employees = _fetch_sheet_dataframe("Employee List", ("Employees",), force_refresh=True)
-            sign_in_bytes, active_employee_count = build_sign_in_sheet_workbook(
-                sign_in_template_bytes,
-                sign_in_employees,
-                date_val,
-            )
-            st.session_state["sign_in_sheet_export"] = {
-                "bytes": sign_in_bytes,
-                "file_name": f"{date_val.strftime('%m-%d-%Y')} - Sign In Sheet.xlsx",
-                "employee_count": active_employee_count,
-                "date": date_val.isoformat(),
-            }
-            st.success(f"Sign in sheet ready with {active_employee_count} active employee(s).")
-        except Exception as exc:
-            st.error(f"Could not create Sign In Sheet from the Google workbook: {exc}")
-
-sign_in_export = st.session_state.get("sign_in_sheet_export")
-if sign_in_export:
-    with download_col:
-        st.download_button(
-            "Download Sign In Sheet",
-            data=sign_in_export["bytes"],
-            file_name=sign_in_export["file_name"],
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key=f"download_sign_in_sheet_{sign_in_export.get('date', '')}",
-        )
 
 # --- Display current Time Data with proper date filtering ---
 st.divider()
