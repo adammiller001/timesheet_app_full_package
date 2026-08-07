@@ -1,19 +1,11 @@
 import streamlit as st
 import pandas as pd
-from pathlib import Path
 import io
 import zipfile
-import os
 import re
-import tempfile
-from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.table import Table, TableStyleInfo
 import openpyxl.styles
 from copy import copy
-from shutil import copyfile
-from time import sleep
-import time
 from app.data.time_data import (
     TIME_DATA_COLUMNS,
     append_time_rows,
@@ -21,6 +13,12 @@ from app.data.time_data import (
     normalize_job_area_value,
     normalize_sheet_value,
     prepare_time_data_dataframe,
+)
+from app.exports.google_templates import (
+    build_sign_in_sheet_workbook,
+    get_google_template_workbook_bytes,
+    load_template_sheet_workbook,
+    workbook_to_bytes,
 )
 from app.style_utils import apply_app_theme, apply_watermark
 from datetime import datetime, date
@@ -1272,6 +1270,41 @@ if add_line_clicked:
         except Exception as e:
             st.error(f"Could not save to Time Data: {e}")
 
+print_col, download_col = st.columns([1, 3])
+with print_col:
+    print_sign_in_clicked = st.button("Print Sign In Sheet", type="secondary")
+
+if print_sign_in_clicked:
+    with st.spinner("Creating sign in sheet..."):
+        try:
+            sign_in_template_bytes = get_google_template_workbook_bytes()
+            sign_in_employees = _fetch_sheet_dataframe("Employee List", ("Employees",), force_refresh=True)
+            sign_in_bytes, active_employee_count = build_sign_in_sheet_workbook(
+                sign_in_template_bytes,
+                sign_in_employees,
+                date_val,
+            )
+            st.session_state["sign_in_sheet_export"] = {
+                "bytes": sign_in_bytes,
+                "file_name": f"{date_val.strftime('%m-%d-%Y')} - Sign In Sheet.xlsx",
+                "employee_count": active_employee_count,
+                "date": date_val.isoformat(),
+            }
+            st.success(f"Sign in sheet ready with {active_employee_count} active employee(s).")
+        except Exception as exc:
+            st.error(f"Could not create Sign In Sheet from the Google workbook: {exc}")
+
+sign_in_export = st.session_state.get("sign_in_sheet_export")
+if sign_in_export:
+    with download_col:
+        st.download_button(
+            "Download Sign In Sheet",
+            data=sign_in_export["bytes"],
+            file_name=sign_in_export["file_name"],
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"download_sign_in_sheet_{sign_in_export.get('date', '')}",
+        )
+
 # --- Display current Time Data with proper date filtering ---
 st.divider()
 col1, col2 = st.columns([3, 1])
@@ -1634,7 +1667,7 @@ if user_type.upper() == "ADMIN":
                 return rows_used
 
             def create_template_exports(export_date):
-                """Create proper template-based exports using Daily Time.xlsx and TimeEntries.xlsx"""
+                """Create template-based exports from the live Google workbook tabs."""
                 filtered_data = time_data_for_export[
                     pd.to_datetime(time_data_for_export['Date']).dt.date == export_date
                 ].copy()
@@ -1644,190 +1677,177 @@ if user_type.upper() == "ADMIN":
                     return None
 
                 try:
+                    template_workbook_bytes = get_google_template_workbook_bytes()
                     zip_buffer = io.BytesIO()
+                    files_written = 0
 
                     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                    
-                        daily_time_template = Path(__file__).resolve().parent.parent / "Daily Time.xlsx"
-                        if daily_time_template.exists():
-                            tmp_path = None
-                            try:
-                                with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
-                                    tmp_path = tmp.name
-                                    copyfile(daily_time_template, tmp_path)
+                        try:
+                            wb, ws = load_template_sheet_workbook(template_workbook_bytes, ("Daily Time", "DailyTime"))
 
-                                wb = load_workbook(tmp_path)
-                                ws = wb.active
+                            for row_idx in range(1, 15):
+                                for col_idx in range(1, 15):
+                                    cell = ws.cell(row=row_idx, column=col_idx)
+                                    if cell.value and 'DATA DATE' in str(cell.value).upper():
+                                        ws.cell(row=row_idx, column=col_idx + 1, value=export_date.strftime('%Y-%m-%d'))
+                                        break
 
-                                for row_idx in range(1, 15):
-                                    for col_idx in range(1, 15):
-                                        cell = ws.cell(row=row_idx, column=col_idx)
-                                        if cell.value and 'DATA DATE' in str(cell.value).upper():
-                                            ws.cell(row=row_idx, column=col_idx + 1, value=export_date.strftime('%Y-%m-%d'))
-                                            break
-
-                                # Load employee data to determine indirect/direct status
-                                employee_df = safe_read_excel(XLSX, "Employee List")
-                                employee_info = {}
-                                if not employee_df.empty:
-                                    for _, emp_row in employee_df.iterrows():
-                                        name = str(emp_row.get("Employee Name", ""))
-                                        employee_info[name] = {
-                                            'indirect': str(emp_row.get("Indirect / Direct", "")).strip().upper() == "INDIRECT",
-                                            'override_trade_class': str(emp_row.get("Override Trade Class", "") or ""),
-                                            'truck': _get_employee_truck(emp_row),
-                                            'premium_rate': _get_employee_list_value(emp_row, ["Premium Rate", "Premium"], 8),
-                                            'subsistence_rate': _get_employee_list_value(emp_row, ["Subsistence Rate", "Subsistence"], 9),
-                                            'travel_rate': _get_employee_list_value(emp_row, ["Travel Rate", "Travel"], 10),
-                                            'post_to_payroll': _get_employee_post_to_payroll(emp_row),
-                                            'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip()
-                                        }
-
-                                # Load cost codes for descriptions
-                                cost_codes_df = safe_read_excel(XLSX, "Cost Codes")
-                                cost_code_descriptions = {}
-                                if not cost_codes_df.empty:
-                                    for _, cc_row in cost_codes_df.iterrows():
-                                        code = str(cc_row.get("Cost Code", "") or "").strip()
-                                        desc = str(cc_row.get("Description", "") or "").strip()
-                                        if code:
-                                            cost_code_descriptions[code] = desc
-
-                                # Group data by employee and combine entries for same employee
-                                employee_groups = {}
-                                for _, row in filtered_data.iterrows():
-                                    emp_name = str(row.get('Name', ''))
-                                    if emp_name not in employee_groups:
-                                        employee_groups[emp_name] = []
-                                    employee_groups[emp_name].append(row)
-
-                                # Separate indirect and direct employees
-                                indirect_employees = []
-                                direct_employees = []
-
-                                for emp_name, entries in employee_groups.items():
-                                    is_indirect = _employee_info_lookup(employee_info, emp_name).get('indirect', False)
-                                    prepared_entries = _prepare_employee_entries(entries)
-
-                                    employee_data = {
-                                        'name': emp_name,
-                                        'entries': prepared_entries,
-                                        'is_indirect': is_indirect
+                            # Load employee data to determine indirect/direct status
+                            employee_df = safe_read_excel(XLSX, "Employee List")
+                            employee_info = {}
+                            if not employee_df.empty:
+                                for _, emp_row in employee_df.iterrows():
+                                    name = str(emp_row.get("Employee Name", ""))
+                                    employee_info[name] = {
+                                        'indirect': str(emp_row.get("Indirect / Direct", "")).strip().upper() == "INDIRECT",
+                                        'override_trade_class': str(emp_row.get("Override Trade Class", "") or ""),
+                                        'truck': _get_employee_truck(emp_row),
+                                        'premium_rate': _get_employee_list_value(emp_row, ["Premium Rate", "Premium"], 8),
+                                        'subsistence_rate': _get_employee_list_value(emp_row, ["Subsistence Rate", "Subsistence"], 9),
+                                        'travel_rate': _get_employee_list_value(emp_row, ["Travel Rate", "Travel"], 10),
+                                        'post_to_payroll': _get_employee_post_to_payroll(emp_row),
+                                        'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip()
                                     }
 
-                                    if is_indirect:
-                                        indirect_employees.append(employee_data)
-                                    else:
-                                        direct_employees.append(employee_data)
+                            # Load cost codes for descriptions
+                            cost_codes_df = safe_read_excel(XLSX, "Cost Codes")
+                            cost_code_descriptions = {}
+                            if not cost_codes_df.empty:
+                                for _, cc_row in cost_codes_df.iterrows():
+                                    code = str(cc_row.get("Cost Code", "") or "").strip()
+                                    desc = str(cc_row.get("Description", "") or "").strip()
+                                    if code:
+                                        cost_code_descriptions[code] = desc
 
-                                # Place indirect employees in rows 8-30
-                                current_row = 8
-                                used_indirect_rows = []
-                                for emp_data in indirect_employees:
-                                    if current_row > 30:
-                                        break
-                                    rows_used = _write_employee_to_daily_time(ws, emp_data['entries'], current_row, employee_info, cost_code_descriptions)
-                                    for i in range(rows_used):
-                                        used_indirect_rows.append(current_row + i)
-                                    current_row += rows_used
+                            # Group data by employee and combine entries for same employee
+                            employee_groups = {}
+                            for _, row in filtered_data.iterrows():
+                                emp_name = str(row.get('Name', ''))
+                                if emp_name not in employee_groups:
+                                    employee_groups[emp_name] = []
+                                employee_groups[emp_name].append(row)
 
-                                # Place direct employees in rows 32-261
-                                current_row = 32
-                                used_direct_rows = []
-                                for emp_data in direct_employees:
-                                    if current_row > 261:
-                                        break
-                                    rows_used = _write_employee_to_daily_time(ws, emp_data['entries'], current_row, employee_info, cost_code_descriptions)
-                                    for i in range(rows_used):
-                                        used_direct_rows.append(current_row + i)
-                                    current_row += rows_used
+                            # Separate indirect and direct employees
+                            indirect_employees = []
+                            direct_employees = []
 
-                                # Hide unused rows
-                                # Hide unused indirect rows (8-30)
-                                for row_num in range(8, 31):
-                                    if row_num not in used_indirect_rows:
-                                        ws.row_dimensions[row_num].hidden = True
+                            for emp_name, entries in employee_groups.items():
+                                is_indirect = _employee_info_lookup(employee_info, emp_name).get('indirect', False)
+                                prepared_entries = _prepare_employee_entries(entries)
 
-                                # Hide unused direct rows (32-261)
-                                for row_num in range(32, 262):
-                                    if row_num not in used_direct_rows:
-                                        ws.row_dimensions[row_num].hidden = True
+                                employee_data = {
+                                    'name': emp_name,
+                                    'entries': prepared_entries,
+                                    'is_indirect': is_indirect
+                                }
 
-                                used_employee_rows = used_indirect_rows + used_direct_rows
-                                has_second_entry_data = any(
-                                    any(ws.cell(row=row_num, column=col_num).value not in (None, '') for col_num in range(11, 16))
-                                    for row_num in used_employee_rows
-                                )
-                                for col_num in range(11, 18):
-                                    ws.column_dimensions[get_column_letter(col_num)].hidden = not has_second_entry_data
+                                if is_indirect:
+                                    indirect_employees.append(employee_data)
+                                else:
+                                    direct_employees.append(employee_data)
 
-                                wb.active = wb.index(ws)
-                                ws.sheet_view.topLeftCell = "A1"
-                                if ws.sheet_view.selection:
-                                    ws.sheet_view.selection[0].activeCell = "A1"
-                                    ws.sheet_view.selection[0].sqref = "A1"
+                            # Place indirect employees in rows 8-30
+                            current_row = 8
+                            used_indirect_rows = []
+                            for emp_data in indirect_employees:
+                                if current_row > 30:
+                                    break
+                                rows_used = _write_employee_to_daily_time(ws, emp_data['entries'], current_row, employee_info, cost_code_descriptions)
+                                for i in range(rows_used):
+                                    used_indirect_rows.append(current_row + i)
+                                current_row += rows_used
 
-                                # Add job summaries starting at row 264
-                                current_summary_row = 264
+                            # Place direct employees in rows 32-261
+                            current_row = 32
+                            used_direct_rows = []
+                            for emp_data in direct_employees:
+                                if current_row > 261:
+                                    break
+                                rows_used = _write_employee_to_daily_time(ws, emp_data['entries'], current_row, employee_info, cost_code_descriptions)
+                                for i in range(rows_used):
+                                    used_direct_rows.append(current_row + i)
+                                current_row += rows_used
 
-                                # Group data by job number, area, and description
-                                job_groups = {}
-                                for _, row in filtered_data.iterrows():
-                                    job_num = str(row.get('Job Number', ''))
-                                    job_area = _normalize_job_area_value(row.get('Job Area', ''))
-                                    job_desc = str(row.get('Description of work', ''))
-                                    job_key = f"{job_num} - {job_area} - {job_desc}"
+                            # Hide unused rows
+                            # Hide unused indirect rows (8-30)
+                            for row_num in range(8, 31):
+                                if row_num not in used_indirect_rows:
+                                    ws.row_dimensions[row_num].hidden = True
 
-                                    if job_key not in job_groups:
-                                        job_groups[job_key] = set()
+                            # Hide unused direct rows (32-261)
+                            for row_num in range(32, 262):
+                                if row_num not in used_direct_rows:
+                                    ws.row_dimensions[row_num].hidden = True
 
-                                    raw_comment = str(row.get('Comments', '') or '').strip()
-                                    if raw_comment:
-                                        lower_comment = raw_comment.lower()
-                                        if lower_comment not in ('nan', 'none'):
-                                            split_comments = [part.strip() for part in raw_comment.split(',') if part.strip()]
-                                            for split_comment in split_comments:
-                                                normalized_comment = split_comment.upper()
-                                                if normalized_comment and normalized_comment not in ('NAN', 'NONE'):
-                                                    job_groups[job_key].add(normalized_comment)
+                            used_employee_rows = used_indirect_rows + used_direct_rows
+                            has_second_entry_data = any(
+                                any(ws.cell(row=row_num, column=col_num).value not in (None, '') for col_num in range(11, 16))
+                                for row_num in used_employee_rows
+                            )
+                            for col_num in range(11, 18):
+                                ws.column_dimensions[get_column_letter(col_num)].hidden = not has_second_entry_data
 
-                                # Write job summaries (only if there are comments)
-                                for job_key, comments in job_groups.items():
-                                    if current_summary_row > 500:  # Avoid going too far down
-                                        break
+                            wb.active = wb.index(ws)
+                            ws.sheet_view.topLeftCell = "A1"
+                            if ws.sheet_view.selection:
+                                ws.sheet_view.selection[0].activeCell = "A1"
+                                ws.sheet_view.selection[0].sqref = "A1"
 
-                                    # Only write if there are actual comments
-                                    if comments:
-                                        # Write job header (bold and underlined)
-                                        cell = ws.cell(row=current_summary_row, column=1, value=job_key)
-                                        cell.font = openpyxl.styles.Font(bold=True, underline='single')
+                            # Add job summaries starting at row 264
+                            current_summary_row = 264
+
+                            # Group data by job number, area, and description
+                            job_groups = {}
+                            for _, row in filtered_data.iterrows():
+                                job_num = str(row.get('Job Number', ''))
+                                job_area = _normalize_job_area_value(row.get('Job Area', ''))
+                                job_desc = str(row.get('Description of work', ''))
+                                job_key = f"{job_num} - {job_area} - {job_desc}"
+
+                                if job_key not in job_groups:
+                                    job_groups[job_key] = set()
+
+                                raw_comment = str(row.get('Comments', '') or '').strip()
+                                if raw_comment:
+                                    lower_comment = raw_comment.lower()
+                                    if lower_comment not in ('nan', 'none'):
+                                        split_comments = [part.strip() for part in raw_comment.split(',') if part.strip()]
+                                        for split_comment in split_comments:
+                                            normalized_comment = split_comment.upper()
+                                            if normalized_comment and normalized_comment not in ('NAN', 'NONE'):
+                                                job_groups[job_key].add(normalized_comment)
+
+                            # Write job summaries (only if there are comments)
+                            for job_key, comments in job_groups.items():
+                                if current_summary_row > 500:  # Avoid going too far down
+                                    break
+
+                                # Only write if there are actual comments
+                                if comments:
+                                    # Write job header (bold and underlined)
+                                    cell = ws.cell(row=current_summary_row, column=1, value=job_key)
+                                    cell.font = openpyxl.styles.Font(bold=True, underline='single')
+                                    current_summary_row += 1
+
+                                    # Write each unique comment
+                                    for comment in sorted(comments):
+                                        if current_summary_row > 500:
+                                            break
+                                        ws.cell(row=current_summary_row, column=1, value=comment)
                                         current_summary_row += 1
 
-                                        # Write each unique comment
-                                        for comment in sorted(comments):
-                                            if current_summary_row > 500:
-                                                break
-                                            ws.cell(row=current_summary_row, column=1, value=comment)
-                                            current_summary_row += 1
+                                    # Add blank line between job groups
+                                    current_summary_row += 1
 
-                                        # Add blank line between job groups
-                                        current_summary_row += 1
-
-                                wb.save(tmp_path)
-                                wb.close()
-
-                                with open(tmp_path, 'rb') as f:
-                                    zip_file.writestr(f"{export_date.strftime('%m-%d-%Y')} - Daily Time.xlsx", f.read())
-
-                            finally:
-                                if tmp_path and os.path.exists(tmp_path):
-                                    try:
-                                        os.unlink(tmp_path)
-                                    except Exception:
-                                        pass
+                            zip_file.writestr(
+                                f"{export_date.strftime('%m-%d-%Y')} - Daily Time.xlsx",
+                                workbook_to_bytes(wb),
+                            )
+                            files_written += 1
+                        except Exception as exc:
+                            st.error(f"Could not create Daily Time export from the Google 'Daily Time' tab: {exc}")
                         
-                        timeentries_template = Path(__file__).resolve().parent.parent / "TimeEntries.xlsx"
-                        if timeentries_template.exists():
+                        try:
                             # Load employee data for rates (if not already loaded)
                             if 'employee_info' not in locals():
                                 employee_df = smart_read_data("Employee List", force_refresh=False)
@@ -1860,14 +1880,8 @@ if user_type.upper() == "ADMIN":
                                 if job_data.empty:
                                     continue
 
-                                tmp_path = None
                                 try:
-                                    with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
-                                        tmp_path = tmp.name
-                                        copyfile(timeentries_template, tmp_path)
-
-                                    wb = load_workbook(tmp_path)
-                                    ws = wb.active
+                                    wb, ws = load_template_sheet_workbook(template_workbook_bytes, ("TimeEntries", "Time Entries"))
 
                                     current_row = 4
                                     for _, row in job_data.iterrows():
@@ -1948,19 +1962,19 @@ if user_type.upper() == "ADMIN":
                                             except (ValueError, TypeError):
                                                 pass  # Skip if subsistence rate is not a valid number
 
-                                    wb.save(tmp_path)
-                                    wb.close()
+                                    zip_file.writestr(
+                                        f"{export_date.strftime('%m-%d-%Y')} - {job} - Daily Import.xlsx",
+                                        workbook_to_bytes(wb),
+                                    )
+                                    files_written += 1
 
-                                    with open(tmp_path, 'rb') as f:
-                                        zip_file.writestr(f"{export_date.strftime('%m-%d-%Y')} - {job} - Daily Import.xlsx", f.read())
-
-                                finally:
-                                    if tmp_path and os.path.exists(tmp_path):
-                                        try:
-                                            os.unlink(tmp_path)
-                                        except Exception:
-                                            pass
+                                except Exception as exc:
+                                    st.error(f"Could not create Daily Import for job {job} from the Google 'TimeEntries' tab: {exc}")
+                        except Exception as exc:
+                            st.error(f"Could not create Daily Import exports from the Google 'TimeEntries' tab: {exc}")
                     
+                    if files_written == 0:
+                        return None
                     zip_buffer.seek(0)
                     return zip_buffer.getvalue()
                     

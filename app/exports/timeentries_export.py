@@ -1,13 +1,11 @@
 import io
 import pandas as pd
 from datetime import date
-from openpyxl import load_workbook
-from app.config import APP_DIR
 from app.data.workbook import get_time_data, pad_job_area
+from app.exports.google_templates import get_google_template_workbook_bytes, load_template_sheet_workbook
 from app.utils.excel_style import clone_row_styles
 
 EXPECTED_HEADERS = ['Date','Time Record Type','Person Number','Employee Name','Override Trade Class','Post To Payroll','Cost Code / Phase','JobArea','Scope Change','Pay Code','Hours','Night Shift','Premium Rate / Subsistence Rate / Travel Rate','Comments']
-TEMPLATE_EXPORT_BOOK = APP_DIR.parent / "TimeEntries.xlsx"
 PAYCODE_MAP = {"REG":"211","OT":"212","SUBSISTENCE":"261"}
 
 def _build_rows(sub: pd.DataFrame) -> pd.DataFrame:
@@ -50,12 +48,13 @@ def _find_template_sheet(wb):
             return ws
     raise RuntimeError(f"Template workbook does not contain a compatible sheet. Found sheets: {wb.sheetnames}")
 
-def _render_job(day_df: pd.DataFrame, job: str) -> bytes:
+def _render_job(day_df: pd.DataFrame, job: str, template_bytes: bytes) -> bytes:
     subset = day_df[day_df["Job Number"].astype(str).str.strip() == str(job)].copy()
     out_df = _build_rows(subset)
-    if not TEMPLATE_EXPORT_BOOK.exists():
-        raise RuntimeError("Export template 'TimeEntries.xlsx' not found beside the app.")
-    wb = load_workbook(TEMPLATE_EXPORT_BOOK)
+    wb, _ = load_template_sheet_workbook(
+        template_bytes,
+        ("TimeEntries", "Time Entries"),
+    )
     ws = _find_template_sheet(wb)
     headers = [str(c.value).strip() if c.value is not None else "" for c in next(ws.iter_rows(min_row=1, max_row=1))]
     max_col = len(headers)
@@ -83,8 +82,9 @@ def per_job_exports(xlsx_path: str, export_date: date):
     day_df = td[dmask].copy()
     if day_df.empty:
         return []
+    template_bytes = get_google_template_workbook_bytes()
     jobs_for_day = sorted(day_df["Job Number"].astype(str).str.strip().unique().tolist())
     for job in jobs_for_day:
-        content = _render_job(day_df, job)
+        content = _render_job(day_df, job, template_bytes)
         file_name = f"{export_date.strftime('%m-%d-%Y')} - {job} - Daily Time Import.xlsx"
         yield file_name, content

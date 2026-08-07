@@ -1,12 +1,9 @@
 import io
 import pandas as pd
 from datetime import date
-from openpyxl import load_workbook
 from openpyxl.styles import Font
-from app.config import APP_DIR
 from app.data.workbook import get_time_data
-
-DAILY_TEMPLATE_BOOK  = APP_DIR.parent / "Daily Time.xlsx"
+from app.exports.google_templates import get_google_template_workbook_bytes, load_template_sheet_workbook
 
 def daily_time_report(xlsx_path: str, export_date: date) -> bytes | None:
     td = get_time_data(xlsx_path)
@@ -16,11 +13,11 @@ def daily_time_report(xlsx_path: str, export_date: date) -> bytes | None:
     day = td[td["Date"].astype(str).str[:10] == date_str].copy()
     if day.empty:
         return None
-    if not DAILY_TEMPLATE_BOOK.exists():
-        return None
 
-    wb = load_workbook(DAILY_TEMPLATE_BOOK)
-    ws = wb.active
+    wb, ws = load_template_sheet_workbook(
+        get_google_template_workbook_bytes(),
+        ("Daily Time", "DailyTime"),
+    )
 
     try:
         ws["B1"] = pd.to_datetime(date_str).strftime("%A, %B %d, %Y")

@@ -23,8 +23,6 @@ if not st.session_state.get("authenticated", False):
 user = st.session_state.get("user_email")
 st.sidebar.info(f"Signed in as: {user}")
 
-ROOT = Path(__file__).resolve().parents[1]
-
 st.title("Export Day")
 
 # ---------- helpers ----------
@@ -60,13 +58,6 @@ def _coerce_hours_df(df: pd.DataFrame) -> pd.DataFrame:
                 "Job","Cost Code","RT Hours","OT Hours","Notes","Night Shift"]:
         if col not in df.columns: df[col] = ""
     return df
-
-def _templates_missing():
-    missing = []
-    for name in ("Daily Time.xlsx", "TimeEntries.xlsx"):
-        if not (ROOT / name).exists():
-            missing.append(name)
-    return missing
 
 def _to_path(obj) -> Path:
     """Robustly turn anything (path/str/tuple with 1 element) into a Path."""
@@ -111,11 +102,7 @@ with c1:
     date_val = st.date_input("Export date", value=date_val)
 
 with c2:
-    miss = _templates_missing()
-    if miss:
-        st.warning("Missing required files in app root (and they must be closed in Excel): " + ", ".join(miss))
-    else:
-        st.info("Templates detected. Ready to export.")
+    st.info("Templates are loaded from the Daily Time and TimeEntries tabs in the Google workbook.")
 
 hours_df = _find_hours_df()
 if hours_df is None or hours_df.empty:
@@ -167,7 +154,7 @@ if st.button("Export Daily Time", type="primary"):
                         key=f"dl_job_{i}_{p.name}",
                     )
         else:
-            st.info("No per-job files were created. Check that each row has a Job and that TimeEntries.xlsx is present and closed.")
+            st.info("No per-job files were created. Check that each row has a Job and that the Google workbook has a TimeEntries tab.")
 
     except FileNotFoundError as e:
         st.error(str(e))

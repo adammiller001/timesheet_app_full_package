@@ -410,6 +410,19 @@ class GoogleSheetsManager:
             st.error(f"Failed to write to worksheet '{worksheet_name}': {exc}")
             return False
 
+    def export_spreadsheet_xlsx(self, spreadsheet_id: str) -> bytes:
+        """Export the connected Google workbook as an Excel file."""
+        session = self._ensure_session()
+        if session is None or not spreadsheet_id:
+            raise RuntimeError("Google Sheets connection is not configured.")
+        url = f"https://www.googleapis.com/drive/v3/files/{spreadsheet_id}/export"
+        params = {
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }
+        response = session.get(url, params=params)
+        response.raise_for_status()
+        return response.content
+
 
 # Global instance
 sheets_manager = GoogleSheetsManager()
