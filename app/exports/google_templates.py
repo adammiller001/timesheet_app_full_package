@@ -169,6 +169,37 @@ def _sign_in_employee_rows(employees_df: pd.DataFrame) -> tuple[list[list[str]],
     return rows, active_count, first_hidden_row
 
 
+def _sign_in_client_rows(clients_df: pd.DataFrame) -> tuple[list[list[str]], int, int | None]:
+    if clients_df is None:
+        clients_df = pd.DataFrame()
+    clients_df = clients_df.copy()
+    clients_df.columns = [str(col).strip() for col in clients_df.columns]
+
+    company_col = _find_column(clients_df, ("COMPANY", "Company Name", "Company", "Client Company"), 0)
+    name_col = _find_column(clients_df, ("PERSON NAME", "Person Name", "Client Name", "Name"), 1)
+    cert_col = _find_column(clients_df, ("CERTIFICATION", "Certification", "Craft / Certification", "Craft"), 2)
+    active_col = _find_column(clients_df, ("Active", "Is Active", "Enabled"), 3)
+
+    if active_col:
+        clients_df = clients_df[clients_df[active_col].apply(_is_truthy)]
+
+    rows: list[list[str]] = []
+    for _, client in clients_df.iterrows():
+        if len(rows) >= 18:
+            break
+        rows.append([
+            _clean_text(client.get(company_col, "")) if company_col else "",
+            _clean_text(client.get(name_col, "")) if name_col else "",
+            _clean_text(client.get(cert_col, "")) if cert_col else "",
+        ])
+    active_count = len(rows)
+    rows.extend([["", "", ""] for _ in range(max(18 - len(rows), 0))])
+    first_hidden_row = 76 + active_count + 3
+    if first_hidden_row > 93:
+        first_hidden_row = None
+    return rows, active_count, first_hidden_row
+
+
 def _find_sheet_id(metadata: dict, title: str) -> int:
     target = _normalize_name(title)
     for sheet in metadata.get("sheets", []):
@@ -339,8 +370,9 @@ def build_pdf_image_print_html(pdf_bytes: bytes, *, auto_print: bool = True) -> 
 def build_sign_in_sheet_pdf(
     employees_df: pd.DataFrame,
     sign_in_dates: Iterable[date | datetime],
+    clients_df: pd.DataFrame | None = None,
     spreadsheet_id: str | None = None,
-) -> tuple[bytes, int, int]:
+) -> tuple[bytes, int, int, int]:
     """Create Google-rendered PDFs from temporary copies of the Sign In Sheet tab."""
     dates = list(sign_in_dates)
     if not dates:
@@ -351,6 +383,7 @@ def build_sign_in_sheet_pdf(
         raise RuntimeError("Google Sheets ID is not configured.")
 
     rows, active_count, first_hidden_row = _sign_in_employee_rows(employees_df)
+    client_rows, active_client_count, first_hidden_client_row = _sign_in_client_rows(clients_df)
     manager = get_sheets_manager()
     metadata = manager.get_spreadsheet_metadata(sheet_id, fields="sheets(properties(sheetId,title,index))")
     source_sheet_id = _find_sheet_id(metadata, "Sign In Sheet")
@@ -385,6 +418,11 @@ def build_sign_in_sheet_pdf(
                 f"{_a1_sheet_name(temp_sheet_title)}!A11:C74",
                 rows,
             )
+            manager.update_values(
+                sheet_id,
+                f"{_a1_sheet_name(temp_sheet_title)}!A76:C93",
+                client_rows,
+            )
 
             hide_requests = [{
                 "updateDimensionProperties": {
@@ -393,6 +431,17 @@ def build_sign_in_sheet_pdf(
                         "dimension": "ROWS",
                         "startIndex": 10,
                         "endIndex": 74,
+                    },
+                    "properties": {"hiddenByUser": False},
+                    "fields": "hiddenByUser",
+                }
+            }, {
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": temp_sheet_id,
+                        "dimension": "ROWS",
+                        "startIndex": 75,
+                        "endIndex": 93,
                     },
                     "properties": {"hiddenByUser": False},
                     "fields": "hiddenByUser",
@@ -411,6 +460,19 @@ def build_sign_in_sheet_pdf(
                         "fields": "hiddenByUser",
                     }
                 })
+            if first_hidden_client_row is not None:
+                hide_requests.append({
+                    "updateDimensionProperties": {
+                        "range": {
+                            "sheetId": temp_sheet_id,
+                            "dimension": "ROWS",
+                            "startIndex": first_hidden_client_row - 1,
+                            "endIndex": 93,
+                        },
+                        "properties": {"hiddenByUser": True},
+                        "fields": "hiddenByUser",
+                    }
+                })
             manager.batch_update(sheet_id, hide_requests)
             time.sleep(0.25)
             pdf_parts.append(manager.export_sheet_pdf(sheet_id, temp_sheet_id))
@@ -422,4 +484,4 @@ def build_sign_in_sheet_pdf(
             except Exception:
                 pass
 
-    return _merge_pdf_bytes(pdf_parts), active_count, len(dates)
+    return _merge_pdf_bytes(pdf_parts), active_count, active_client_count, len(dates)

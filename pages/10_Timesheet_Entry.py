@@ -734,20 +734,24 @@ if print_sign_in_clicked:
         with st.spinner("Preparing sign in sheets for printing..."):
             try:
                 sign_in_employees = _fetch_sheet_dataframe("Employee List", ("Employees",), force_refresh=True)
-                sign_in_pdf, active_employee_count, sign_in_sheet_count = build_sign_in_sheet_pdf(
+                sign_in_clients = _fetch_sheet_dataframe("Client Names", ("Clients", "Client List"), force_refresh=True)
+                sign_in_pdf, active_employee_count, active_client_count, sign_in_sheet_count = build_sign_in_sheet_pdf(
                     sign_in_employees,
                     sign_in_dates,
+                    sign_in_clients,
                 )
                 st.session_state["sign_in_sheet_print_html"] = {
                     "html": build_pdf_image_print_html(sign_in_pdf, auto_print=True),
                     "employee_count": active_employee_count,
+                    "client_count": active_client_count,
                     "sheet_count": sign_in_sheet_count,
                     "start_date": sign_in_start_date.isoformat(),
                     "end_date": sign_in_end_date.isoformat(),
                 }
                 st.success(
                     f"Print view ready with {sign_in_sheet_count} sheet(s) "
-                    f"and {active_employee_count} active employee(s) per sheet."
+                    f"plus {active_employee_count} active employee(s) "
+                    f"and {active_client_count} active client(s) per sheet."
                 )
             except Exception as exc:
                 st.error(f"Could not prepare Sign In Sheet print view: {exc}")
