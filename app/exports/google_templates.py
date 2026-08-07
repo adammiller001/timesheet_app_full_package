@@ -444,6 +444,16 @@ def build_sign_in_sheet_pdf(
         hide_requests = []
         for _, temp_sheet_id, _ in temp_sheets:
             hide_requests.extend([{
+                "updateSheetProperties": {
+                    "properties": {
+                        "sheetId": temp_sheet_id,
+                        "gridProperties": {
+                            "frozenRowCount": 10,
+                        },
+                    },
+                    "fields": "gridProperties.frozenRowCount",
+                }
+            }, {
                 "updateDimensionProperties": {
                     "range": {
                         "sheetId": temp_sheet_id,
@@ -495,7 +505,7 @@ def build_sign_in_sheet_pdf(
         manager.batch_update(sheet_id, hide_requests)
         time.sleep(0.35)
         for _, temp_sheet_id, _ in temp_sheets:
-            pdf_parts.append(manager.export_sheet_pdf(sheet_id, temp_sheet_id))
+            pdf_parts.append(manager.export_sheet_pdf(sheet_id, temp_sheet_id, repeat_frozen_rows=True))
     finally:
         if created_sheet_ids:
             delete_requests = [{"deleteSheet": {"sheetId": temp_sheet_id}} for temp_sheet_id in created_sheet_ids]

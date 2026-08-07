@@ -45,3 +45,27 @@ def test_batch_update_values_uses_google_values_batch_endpoint(monkeypatch):
     assert posted["url"] == "https://sheets.googleapis.com/v4/spreadsheets/sheet-id/values:batchUpdate"
     assert posted["json"]["valueInputOption"] == "USER_ENTERED"
     assert len(posted["json"]["data"]) == 2
+
+
+def test_export_sheet_pdf_can_repeat_frozen_rows(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        content = b"pdf"
+
+        def raise_for_status(self):
+            return None
+
+    class FakeSession:
+        def get(self, url, params):
+            captured["url"] = url
+            captured["params"] = params
+            return FakeResponse()
+
+    manager = GoogleSheetsManager()
+    monkeypatch.setattr(manager, "_ensure_session", lambda: FakeSession())
+
+    assert manager.export_sheet_pdf("sheet-id", 123, repeat_frozen_rows=True) == b"pdf"
+    assert captured["url"] == "https://docs.google.com/spreadsheets/d/sheet-id/export"
+    assert captured["params"]["gid"] == "123"
+    assert captured["params"]["fzr"] == "true"

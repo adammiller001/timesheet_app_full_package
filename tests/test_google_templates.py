@@ -163,8 +163,8 @@ def test_sign_in_sheet_pdf_batches_google_updates(monkeypatch):
             self.single_value_calls.append((range_name, values))
             return {}
 
-        def export_sheet_pdf(self, spreadsheet_id, sheet_id):
-            self.exported_sheet_ids.append(sheet_id)
+        def export_sheet_pdf(self, spreadsheet_id, sheet_id, *, repeat_frozen_rows=False):
+            self.exported_sheet_ids.append((sheet_id, repeat_frozen_rows))
             return pdf_bytes(f"sheet {sheet_id}")
 
     fake_manager = FakeManager()
@@ -192,10 +192,17 @@ def test_sign_in_sheet_pdf_batches_google_updates(monkeypatch):
     assert client_count == 1
     assert sheet_count == 2
     assert len(fake_manager.batch_update_calls[0]) == 2
+    formatting_requests = fake_manager.batch_update_calls[1]
+    repeat_header_requests = [
+        request for request in formatting_requests
+        if "updateSheetProperties" in request
+    ]
+    assert len(repeat_header_requests) == 2
+    assert repeat_header_requests[0]["updateSheetProperties"]["properties"]["gridProperties"]["frozenRowCount"] == 10
     assert len(fake_manager.batch_value_calls) == 1
     assert len(fake_manager.batch_value_calls[0]) == 6
     assert fake_manager.single_value_calls == []
-    assert fake_manager.exported_sheet_ids == [201, 202]
+    assert fake_manager.exported_sheet_ids == [(201, True), (202, True)]
 
 
 def test_pdf_image_print_html_renders_images_and_calls_print():
