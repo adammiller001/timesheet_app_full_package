@@ -423,6 +423,72 @@ class GoogleSheetsManager:
         response.raise_for_status()
         return response.content
 
+    def get_spreadsheet_metadata(self, spreadsheet_id: str, fields: str | None = None) -> Dict[str, Any]:
+        """Return spreadsheet metadata from the Sheets API."""
+        session = self._ensure_session()
+        if session is None or not spreadsheet_id:
+            raise RuntimeError("Google Sheets connection is not configured.")
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
+        params = {"fields": fields} if fields else None
+        response = session.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+
+    def batch_update(self, spreadsheet_id: str, requests_body: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Run a Sheets API batchUpdate request."""
+        session = self._ensure_session()
+        if session is None or not spreadsheet_id:
+            raise RuntimeError("Google Sheets connection is not configured.")
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}:batchUpdate"
+        response = session.post(url, json={"requests": requests_body})
+        response.raise_for_status()
+        self._worksheet_cache = {'timestamp': 0.0, 'worksheets': []}
+        self._data_cache.clear()
+        return response.json()
+
+    def update_values(
+        self,
+        spreadsheet_id: str,
+        range_name: str,
+        values: List[List[Any]],
+        value_input_option: str = "USER_ENTERED",
+    ) -> Dict[str, Any]:
+        """Update a precise A1 range in the spreadsheet."""
+        session = self._ensure_session()
+        if session is None or not spreadsheet_id:
+            raise RuntimeError("Google Sheets connection is not configured.")
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{quote(range_name, safe='')}"
+        response = session.put(
+            url,
+            params={"valueInputOption": value_input_option},
+            json={"values": values},
+        )
+        response.raise_for_status()
+        self._data_cache.clear()
+        return response.json()
+
+    def export_sheet_pdf(self, spreadsheet_id: str, sheet_id: int) -> bytes:
+        """Export one Google Sheet tab as a PDF using Google Sheets rendering."""
+        session = self._ensure_session()
+        if session is None or not spreadsheet_id:
+            raise RuntimeError("Google Sheets connection is not configured.")
+        url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export"
+        params = {
+            "format": "pdf",
+            "gid": str(sheet_id),
+            "size": "7",
+            "portrait": "true",
+            "fitw": "true",
+            "sheetnames": "false",
+            "printtitle": "false",
+            "pagenumbers": "false",
+            "gridlines": "false",
+            "fzr": "false",
+        }
+        response = session.get(url, params=params)
+        response.raise_for_status()
+        return response.content
+
 
 # Global instance
 sheets_manager = GoogleSheetsManager()

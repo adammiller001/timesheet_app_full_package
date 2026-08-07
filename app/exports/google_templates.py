@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import io
-from html import escape
+import base64
+import time
 from datetime import date, datetime
 from typing import Iterable
 
@@ -133,7 +134,11 @@ def workbook_to_bytes(wb: Workbook) -> bytes:
     return buffer.getvalue()
 
 
-def _sign_in_rows(employees_df: pd.DataFrame) -> list[tuple[str, str, str]]:
+def _a1_sheet_name(title: str) -> str:
+    return "'" + str(title).replace("'", "''") + "'"
+
+
+def _sign_in_employee_rows(employees_df: pd.DataFrame) -> tuple[list[list[str]], int, int | None]:
     if employees_df is None:
         employees_df = pd.DataFrame()
     employees_df = employees_df.copy()
@@ -147,195 +152,226 @@ def _sign_in_rows(employees_df: pd.DataFrame) -> list[tuple[str, str, str]]:
     if active_col:
         employees_df = employees_df[employees_df[active_col].apply(_is_truthy)]
 
-    rows: list[tuple[str, str, str]] = []
+    rows: list[list[str]] = []
     for _, employee in employees_df.iterrows():
         if len(rows) >= 64:
             break
-        rows.append((
+        rows.append([
             _clean_text(employee.get(company_col, "")) if company_col else "",
             _clean_text(employee.get(name_col, "")) if name_col else "",
             _clean_text(employee.get(craft_col, "")) if craft_col else "",
-        ))
-    rows.extend([("", "", "") for _ in range(min(5, max(64 - len(rows), 0)))])
-    return rows
+        ])
+    active_count = len(rows)
+    rows.extend([["", "", ""] for _ in range(max(64 - len(rows), 0))])
+    first_hidden_row = 11 + active_count + 5
+    if first_hidden_row > 74:
+        first_hidden_row = None
+    return rows, active_count, first_hidden_row
 
 
-def build_sign_in_print_html(
-    employees_df: pd.DataFrame,
-    sign_in_dates: Iterable[date | datetime],
-    *,
-    auto_print: bool = True,
-) -> tuple[str, int, int]:
-    """Build browser-printable sign-in sheets, one page per requested date."""
-    dates = list(sign_in_dates)
-    if not dates:
-        raise ValueError("At least one sign in date is required.")
+def _find_sheet_id(metadata: dict, title: str) -> int:
+    target = _normalize_name(title)
+    for sheet in metadata.get("sheets", []):
+        properties = sheet.get("properties", {})
+        if _normalize_name(properties.get("title")) == target:
+            return int(properties["sheetId"])
+    found = ", ".join(
+        str(sheet.get("properties", {}).get("title", ""))
+        for sheet in metadata.get("sheets", [])
+    )
+    raise RuntimeError(f"Worksheet '{title}' not found. Found: {found}")
 
-    rows = _sign_in_rows(employees_df)
-    active_count = sum(1 for company, name, craft in rows if company or name or craft)
-    page_blocks = []
-    for sign_in_date in dates:
-        if isinstance(sign_in_date, datetime):
-            sign_in_date = sign_in_date.date()
-        table_rows = "\n".join(
-            "<tr>"
-            f"<td>{escape(company)}</td>"
-            f"<td>{escape(name)}</td>"
-            f"<td>{escape(craft)}</td>"
-            "<td></td>"
-            "<td></td>"
-            "</tr>"
-            for company, name, craft in rows
-        )
-        page_blocks.append(
-            "<section class='sign-page'>"
-            "<div class='sheet-head'>"
-            "<h1>Sign In Sheet</h1>"
-            f"<div class='date-box'><span>Date</span><strong>{escape(sign_in_date.strftime('%Y/%m/%d'))}</strong></div>"
-            "</div>"
-            "<table>"
-            "<thead><tr>"
-            "<th>Company Name</th>"
-            "<th>Employee Name</th>"
-            "<th>Craft / Certification</th>"
-            "<th>Signature</th>"
-            "<th>Initials</th>"
-            "</tr></thead>"
-            f"<tbody>{table_rows}</tbody>"
-            "</table>"
-            "</section>"
-        )
 
-    script = ""
+def _merge_pdf_bytes(pdf_parts: list[bytes]) -> bytes:
+    if not pdf_parts:
+        raise RuntimeError("No sign in sheets were exported.")
+    if len(pdf_parts) == 1:
+        return pdf_parts[0]
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except ImportError as exc:
+        raise RuntimeError("PDF merge support is not installed. Add pypdf to requirements.txt.") from exc
+
+    writer = PdfWriter()
+    for pdf_part in pdf_parts:
+        reader = PdfReader(io.BytesIO(pdf_part))
+        for page in reader.pages:
+            writer.add_page(page)
+    out = io.BytesIO()
+    writer.write(out)
+    out.seek(0)
+    return out.getvalue()
+
+
+def build_pdf_print_html(pdf_bytes: bytes, *, auto_print: bool = True) -> str:
+    """Embed a PDF and ask the browser to open the printer dialog."""
+    encoded_pdf = base64.b64encode(pdf_bytes).decode("ascii")
+    auto_print_script = ""
     if auto_print:
-        script = """
-        <script>
-        window.addEventListener("load", function () {
-            setTimeout(function () {
-                window.focus();
-                window.print();
-            }, 250);
-        });
-        </script>
+        auto_print_script = """
+            iframe.addEventListener("load", function () {
+                setTimeout(function () {
+                    try {
+                        iframe.contentWindow.focus();
+                        iframe.contentWindow.print();
+                    } catch (error) {
+                        status.textContent = "Use the button below to open the print dialog.";
+                    }
+                }, 500);
+            });
         """
-
-    html = f"""
+    return f"""
     <!doctype html>
     <html>
     <head>
     <meta charset="utf-8">
     <style>
-        @page {{
-            size: letter portrait;
-            margin: 0.35in;
-        }}
-        * {{
-            box-sizing: border-box;
-        }}
         body {{
             margin: 0;
-            color: #111827;
             font-family: Arial, Helvetica, sans-serif;
-            background: #ffffff;
+            background: #f9fafb;
+            color: #111827;
         }}
-        .screen-controls {{
-            margin: 0;
+        .controls {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
             padding: 10px 12px;
             border: 1px solid #d1d5db;
-            background: #f9fafb;
-            font-size: 14px;
+            background: #ffffff;
         }}
-        .screen-controls button {{
-            margin-left: 8px;
-            padding: 6px 10px;
+        button, a {{
             border: 1px solid #9ca3af;
             background: #ffffff;
+            color: #111827;
+            padding: 6px 10px;
+            font-size: 14px;
+            text-decoration: none;
             cursor: pointer;
         }}
-        .sign-page {{
-            width: 100%;
-            min-height: 10.25in;
-            page-break-after: always;
-            padding: 0.05in;
-        }}
-        .sign-page:last-child {{
-            page-break-after: auto;
-        }}
-        .sheet-head {{
-            display: flex;
-            align-items: flex-end;
-            justify-content: space-between;
-            margin-bottom: 14px;
-        }}
-        h1 {{
-            margin: 0;
-            font-size: 24px;
-            line-height: 1.1;
-        }}
-        .date-box {{
-            display: grid;
-            grid-template-columns: 0.85in 1.45in;
-            border: 1px solid #111827;
-            min-height: 0.32in;
-            align-items: center;
-        }}
-        .date-box span {{
-            height: 100%;
-            display: flex;
-            align-items: center;
-            padding: 0 8px;
-            color: #ffffff;
-            background: #304d9a;
-            font-weight: 700;
-            font-size: 12px;
-        }}
-        .date-box strong {{
-            padding: 0 8px;
-            font-size: 13px;
-        }}
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            table-layout: fixed;
-            font-size: 11px;
-        }}
-        th {{
-            color: #ffffff;
-            background: #304d9a;
-            border: 1px solid #111827;
-            padding: 5px 6px;
-            text-align: left;
-        }}
-        td {{
-            border: 1px solid #9ca3af;
-            height: 0.25in;
-            padding: 3px 6px;
-            vertical-align: middle;
-        }}
-        th:nth-child(1), td:nth-child(1) {{ width: 20%; }}
-        th:nth-child(2), td:nth-child(2) {{ width: 28%; }}
-        th:nth-child(3), td:nth-child(3) {{ width: 24%; }}
-        th:nth-child(4), td:nth-child(4) {{ width: 20%; }}
-        th:nth-child(5), td:nth-child(5) {{ width: 8%; }}
-        @media print {{
-            .screen-controls {{
-                display: none;
-            }}
-            body {{
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-            }}
+        iframe {{
+            position: fixed;
+            width: 1px;
+            height: 1px;
+            left: -1000px;
+            top: -1000px;
+            border: 0;
         }}
     </style>
     </head>
     <body>
-    <div class="screen-controls">
-        The print dialog should open automatically.
-        <button onclick="window.print()">Open print dialog</button>
+    <div class="controls">
+        <span id="status">The print dialog should open automatically.</span>
+        <button onclick="printPdf()">Open print dialog</button>
+        <a id="openPdf" target="_blank">Open PDF</a>
     </div>
-    {''.join(page_blocks)}
-    {script}
+    <iframe id="printFrame"></iframe>
+    <script>
+        const pdfUrl = "data:application/pdf;base64,{encoded_pdf}";
+        const iframe = document.getElementById("printFrame");
+        const status = document.getElementById("status");
+        const openPdf = document.getElementById("openPdf");
+        iframe.src = pdfUrl;
+        openPdf.href = pdfUrl;
+        function printPdf() {{
+            try {{
+                iframe.contentWindow.focus();
+                iframe.contentWindow.print();
+            }} catch (error) {{
+                window.open(pdfUrl, "_blank");
+            }}
+        }}
+        {auto_print_script}
+    </script>
     </body>
     </html>
     """
-    return html, active_count, len(dates)
+
+
+def build_sign_in_sheet_pdf(
+    employees_df: pd.DataFrame,
+    sign_in_dates: Iterable[date | datetime],
+    spreadsheet_id: str | None = None,
+) -> tuple[bytes, int, int]:
+    """Create Google-rendered PDFs from temporary copies of the Sign In Sheet tab."""
+    dates = list(sign_in_dates)
+    if not dates:
+        raise ValueError("At least one sign in date is required.")
+
+    sheet_id = str(spreadsheet_id or st.secrets.get("google_sheets_id", "")).strip()
+    if not sheet_id:
+        raise RuntimeError("Google Sheets ID is not configured.")
+
+    rows, active_count, first_hidden_row = _sign_in_employee_rows(employees_df)
+    manager = get_sheets_manager()
+    metadata = manager.get_spreadsheet_metadata(sheet_id, fields="sheets(properties(sheetId,title,index))")
+    source_sheet_id = _find_sheet_id(metadata, "Sign In Sheet")
+
+    created_sheet_ids: list[int] = []
+    pdf_parts: list[bytes] = []
+    unique_token = int(time.time() * 1000)
+
+    try:
+        for index, sign_in_date in enumerate(dates):
+            if isinstance(sign_in_date, datetime):
+                sign_in_date = sign_in_date.date()
+            temp_title = f"_Print Sign In {sign_in_date:%Y-%m-%d} {unique_token}-{index + 1}"
+            duplicate_response = manager.batch_update(sheet_id, [{
+                "duplicateSheet": {
+                    "sourceSheetId": source_sheet_id,
+                    "newSheetName": temp_title,
+                }
+            }])
+            duplicate_properties = duplicate_response["replies"][0]["duplicateSheet"]["properties"]
+            temp_sheet_id = int(duplicate_properties["sheetId"])
+            temp_sheet_title = str(duplicate_properties["title"])
+            created_sheet_ids.append(temp_sheet_id)
+
+            manager.update_values(
+                sheet_id,
+                f"{_a1_sheet_name(temp_sheet_title)}!D6",
+                [[sign_in_date.strftime("%Y/%m/%d")]],
+            )
+            manager.update_values(
+                sheet_id,
+                f"{_a1_sheet_name(temp_sheet_title)}!A11:C74",
+                rows,
+            )
+
+            hide_requests = [{
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": temp_sheet_id,
+                        "dimension": "ROWS",
+                        "startIndex": 10,
+                        "endIndex": 74,
+                    },
+                    "properties": {"hiddenByUser": False},
+                    "fields": "hiddenByUser",
+                }
+            }]
+            if first_hidden_row is not None:
+                hide_requests.append({
+                    "updateDimensionProperties": {
+                        "range": {
+                            "sheetId": temp_sheet_id,
+                            "dimension": "ROWS",
+                            "startIndex": first_hidden_row - 1,
+                            "endIndex": 74,
+                        },
+                        "properties": {"hiddenByUser": True},
+                        "fields": "hiddenByUser",
+                    }
+                })
+            manager.batch_update(sheet_id, hide_requests)
+            time.sleep(0.25)
+            pdf_parts.append(manager.export_sheet_pdf(sheet_id, temp_sheet_id))
+    finally:
+        if created_sheet_ids:
+            delete_requests = [{"deleteSheet": {"sheetId": temp_sheet_id}} for temp_sheet_id in created_sheet_ids]
+            try:
+                manager.batch_update(sheet_id, delete_requests)
+            except Exception:
+                pass
+
+    return _merge_pdf_bytes(pdf_parts), active_count, len(dates)

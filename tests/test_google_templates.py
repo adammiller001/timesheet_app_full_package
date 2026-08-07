@@ -1,11 +1,11 @@
-import datetime as dt
 import io
 
 import pandas as pd
 from openpyxl import Workbook
 
 from app.exports.google_templates import (
-    build_sign_in_print_html,
+    _sign_in_employee_rows,
+    build_pdf_print_html,
     get_google_template_workbook_bytes,
     load_template_sheet_workbook,
 )
@@ -53,7 +53,7 @@ def test_google_template_export_falls_back_to_existing_session(monkeypatch):
     assert get_google_template_workbook_bytes("sheet-id") == b"xlsx-bytes"
 
 
-def test_sign_in_print_html_creates_one_print_page_per_date():
+def test_sign_in_employee_rows_map_active_columns_l_m_n():
     employees = pd.DataFrame(
         [
             ["EMPL", "S-MIL10", "ADAM MILLER", "", "", "", "", "", "", "", "", "PTW", "Supervisor", "TRUE"],
@@ -78,19 +78,19 @@ def test_sign_in_print_html_creates_one_print_page_per_date():
         ],
     )
 
-    html, active_count, sheet_count = build_sign_in_print_html(
-        employees,
-        [dt.date(2026, 8, 1), dt.date(2026, 8, 2)],
-    )
+    rows, active_count, first_hidden_row = _sign_in_employee_rows(employees)
 
     assert active_count == 2
-    assert sheet_count == 2
-    assert html.count("class='sign-page'") == 2
-    assert "2026/08/01" in html
-    assert "2026/08/02" in html
-    assert "ADAM MILLER" in html
-    assert "TRAVIS TYCHKOWSKY" in html
-    assert "ANDY LYNDS" not in html
-    assert "Supervisor" in html
-    assert "Welder" in html
-    assert "window.print()" in html
+    assert first_hidden_row == 18
+    assert len(rows) == 64
+    assert rows[0] == ["PTW", "ADAM MILLER", "Supervisor"]
+    assert rows[1] == ["PTW", "TRAVIS TYCHKOWSKY", "Welder"]
+    assert rows[2] == ["", "", ""]
+
+
+def test_pdf_print_html_embeds_pdf_and_calls_print():
+    html = build_pdf_print_html(b"%PDF-1.4 fake", auto_print=True)
+
+    assert "application/pdf" in html
+    assert "JVBERi0xLjQgZmFrZQ==" in html
+    assert "contentWindow.print()" in html

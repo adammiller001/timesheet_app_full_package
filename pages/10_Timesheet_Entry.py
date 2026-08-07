@@ -16,7 +16,8 @@ from app.data.time_data import (
     prepare_time_data_dataframe,
 )
 from app.exports.google_templates import (
-    build_sign_in_print_html,
+    build_pdf_print_html,
+    build_sign_in_sheet_pdf,
     get_google_template_workbook_bytes,
     load_template_sheet_workbook,
     workbook_to_bytes,
@@ -733,13 +734,12 @@ if print_sign_in_clicked:
         with st.spinner("Preparing sign in sheets for printing..."):
             try:
                 sign_in_employees = _fetch_sheet_dataframe("Employee List", ("Employees",), force_refresh=True)
-                sign_in_html, active_employee_count, sign_in_sheet_count = build_sign_in_print_html(
+                sign_in_pdf, active_employee_count, sign_in_sheet_count = build_sign_in_sheet_pdf(
                     sign_in_employees,
                     sign_in_dates,
-                    auto_print=True,
                 )
                 st.session_state["sign_in_sheet_print_html"] = {
-                    "html": sign_in_html,
+                    "html": build_pdf_print_html(sign_in_pdf, auto_print=True),
                     "employee_count": active_employee_count,
                     "sheet_count": sign_in_sheet_count,
                     "start_date": sign_in_start_date.isoformat(),
