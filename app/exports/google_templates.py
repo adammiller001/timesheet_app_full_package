@@ -43,6 +43,15 @@ def _is_truthy(value: object) -> bool:
         return False
 
 
+def _normalize_shift(value: object) -> str:
+    text = _clean_text(value).lower()
+    if text in {"n", "night", "nights", "nightshift", "night shift"}:
+        return "night"
+    if text in {"d", "day", "days", "dayshift", "day shift"}:
+        return "day"
+    return ""
+
+
 def _find_column(df: pd.DataFrame, candidates: Iterable[str], fallback_index: int | None = None) -> str | None:
     if df is None or df.empty:
         return None
@@ -138,7 +147,7 @@ def _a1_sheet_name(title: str) -> str:
     return "'" + str(title).replace("'", "''") + "'"
 
 
-def _sign_in_employee_rows(employees_df: pd.DataFrame) -> tuple[list[list[str]], int, int | None]:
+def _sign_in_employee_rows(employees_df: pd.DataFrame, shift: str | None = None) -> tuple[list[list[str]], int, int | None]:
     if employees_df is None:
         employees_df = pd.DataFrame()
     employees_df = employees_df.copy()
@@ -148,9 +157,16 @@ def _sign_in_employee_rows(employees_df: pd.DataFrame) -> tuple[list[list[str]],
     name_col = _find_column(employees_df, ("Employee Name", "Name", "Employee"), 2)
     craft_col = _find_column(employees_df, ("Craft / Certification", "Craft Certification", "Craft", "Certification"), 12)
     active_col = _find_column(employees_df, ("Active", "Is Active", "Enabled"), 13)
+    night_col = _find_column(employees_df, ("Night Shift", "NightShift", "Nights"), 7)
 
     if active_col:
         employees_df = employees_df[employees_df[active_col].apply(_is_truthy)]
+    selected_shift = _normalize_shift(shift)
+    if selected_shift and night_col:
+        night_flags = employees_df[night_col].apply(_is_truthy)
+        employees_df = employees_df[night_flags] if selected_shift == "night" else employees_df[~night_flags]
+    elif selected_shift == "night":
+        employees_df = employees_df.iloc[0:0]
 
     rows: list[list[str]] = []
     for _, employee in employees_df.iterrows():
@@ -169,7 +185,7 @@ def _sign_in_employee_rows(employees_df: pd.DataFrame) -> tuple[list[list[str]],
     return rows, active_count, first_hidden_row
 
 
-def _sign_in_client_rows(clients_df: pd.DataFrame) -> tuple[list[list[str]], int, int | None]:
+def _sign_in_client_rows(clients_df: pd.DataFrame, shift: str | None = None) -> tuple[list[list[str]], int, int | None]:
     if clients_df is None:
         clients_df = pd.DataFrame()
     clients_df = clients_df.copy()
@@ -178,10 +194,21 @@ def _sign_in_client_rows(clients_df: pd.DataFrame) -> tuple[list[list[str]], int
     company_col = _find_column(clients_df, ("COMPANY", "Company Name", "Company", "Client Company"), 0)
     name_col = _find_column(clients_df, ("PERSON NAME", "Person Name", "Client Name", "Name"), 1)
     cert_col = _find_column(clients_df, ("CERTIFICATION", "Certification", "Craft / Certification", "Craft"), 2)
-    active_col = _find_column(clients_df, ("Active", "Is Active", "Enabled"), 3)
+    shift_col = _find_column(clients_df, ("SHIFT", "Shift", "Day / Night", "Day Night"))
+    active_fallback = 4 if shift_col and len(clients_df.columns) > 4 else 3
+    active_col = _find_column(clients_df, ("Active", "Is Active", "Enabled"), active_fallback)
 
     if active_col:
         clients_df = clients_df[clients_df[active_col].apply(_is_truthy)]
+    selected_shift = _normalize_shift(shift)
+    if selected_shift and shift_col:
+        client_shifts = clients_df[shift_col].apply(_normalize_shift)
+        if selected_shift == "night":
+            clients_df = clients_df[client_shifts == "night"]
+        else:
+            clients_df = clients_df[client_shifts != "night"]
+    elif selected_shift == "night":
+        clients_df = clients_df.iloc[0:0]
 
     rows: list[list[str]] = []
     for _, client in clients_df.iterrows():
@@ -372,6 +399,7 @@ def build_sign_in_sheet_pdf(
     sign_in_dates: Iterable[date | datetime],
     clients_df: pd.DataFrame | None = None,
     spreadsheet_id: str | None = None,
+    shift: str | None = None,
 ) -> tuple[bytes, int, int, int]:
     """Create Google-rendered PDFs from temporary copies of the Sign In Sheet tab."""
     dates = list(sign_in_dates)
@@ -382,8 +410,8 @@ def build_sign_in_sheet_pdf(
     if not sheet_id:
         raise RuntimeError("Google Sheets ID is not configured.")
 
-    rows, active_count, first_hidden_row = _sign_in_employee_rows(employees_df)
-    client_rows, active_client_count, first_hidden_client_row = _sign_in_client_rows(clients_df)
+    rows, active_count, first_hidden_row = _sign_in_employee_rows(employees_df, shift)
+    client_rows, active_client_count, first_hidden_client_row = _sign_in_client_rows(clients_df, shift)
     manager = get_sheets_manager()
     metadata = manager.get_spreadsheet_metadata(sheet_id, fields="sheets(properties(sheetId,title,index))")
     source_sheet_id = _find_sheet_id(metadata, "Sign In Sheet")

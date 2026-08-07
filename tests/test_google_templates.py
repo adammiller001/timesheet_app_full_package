@@ -91,6 +91,27 @@ def test_sign_in_employee_rows_map_active_columns_l_m_n():
     assert rows[2] == ["", "", ""]
 
 
+def test_sign_in_employee_rows_filter_day_and_night_shift():
+    employees = pd.DataFrame(
+        [
+            ["PTW", "ADAM MILLER", "Supervisor", "", "TRUE"],
+            ["PTW", "TRAVIS TYCHKOWSKY", "Welder", "Y", "TRUE"],
+            ["PTW", "INACTIVE NIGHT", "Welder", "Y", "FALSE"],
+        ],
+        columns=["Company Name", "Employee Name", "Craft / Certification", "Night Shift", "Active"],
+    )
+
+    day_rows, day_count, day_first_hidden = _sign_in_employee_rows(employees, "day")
+    night_rows, night_count, night_first_hidden = _sign_in_employee_rows(employees, "night")
+
+    assert day_count == 1
+    assert day_first_hidden == 17
+    assert day_rows[0] == ["PTW", "ADAM MILLER", "Supervisor"]
+    assert night_count == 1
+    assert night_first_hidden == 17
+    assert night_rows[0] == ["PTW", "TRAVIS TYCHKOWSKY", "Welder"]
+
+
 def test_sign_in_client_rows_map_active_rows_and_three_blanks():
     clients = pd.DataFrame(
         [
@@ -109,6 +130,29 @@ def test_sign_in_client_rows_map_active_rows_and_three_blanks():
     assert rows[0] == ["PEMBINA", "MARK SOMERS", "CONSTRUCTION MANAGER"]
     assert rows[1] == ["PEMBINA", "SCOTT RADTKE", "E&I SUPERVISOR"]
     assert rows[2] == ["", "", ""]
+
+
+def test_sign_in_client_rows_filter_day_and_night_shift():
+    clients = pd.DataFrame(
+        [
+            ["PEMBINA", "DAY CLIENT", "SAFETY", "Day", "TRUE"],
+            ["PEMBINA", "BLANK SHIFT CLIENT", "SUPERVISOR", "", "TRUE"],
+            ["PEMBINA", "NIGHT CLIENT", "E&I", "Night", "TRUE"],
+            ["PEMBINA", "INACTIVE NIGHT", "E&I", "Night", "FALSE"],
+        ],
+        columns=["COMPANY", "PERSON NAME", "CERTIFICATION", "SHIFT", "Active"],
+    )
+
+    day_rows, day_count, day_first_hidden = _sign_in_client_rows(clients, "day")
+    night_rows, night_count, night_first_hidden = _sign_in_client_rows(clients, "night")
+
+    assert day_count == 2
+    assert day_first_hidden == 81
+    assert day_rows[0] == ["PEMBINA", "DAY CLIENT", "SAFETY"]
+    assert day_rows[1] == ["PEMBINA", "BLANK SHIFT CLIENT", "SUPERVISOR"]
+    assert night_count == 1
+    assert night_first_hidden == 80
+    assert night_rows[0] == ["PEMBINA", "NIGHT CLIENT", "E&I"]
 
 
 def test_sign_in_sheet_pdf_batches_google_updates(monkeypatch):

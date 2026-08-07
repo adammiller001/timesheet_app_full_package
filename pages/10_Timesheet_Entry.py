@@ -707,7 +707,7 @@ def _inclusive_date_range(start_date: date, end_date: date) -> list[date]:
 
 
 st.markdown("#### Sign In Sheets")
-sign_in_cols = st.columns([0.9, 0.9, 0.9, 2.8])
+sign_in_cols = st.columns([0.9, 0.9, 1.1, 1.1, 2.2])
 with sign_in_cols[0]:
     sign_in_start_date = st.date_input(
         "Start Date",
@@ -724,14 +724,19 @@ with sign_in_cols[1]:
     )
 with sign_in_cols[2]:
     st.markdown("<div style='height: 1.65rem;'></div>", unsafe_allow_html=True)
-    print_sign_in_clicked = st.button("Print Sign In Sheet", type="secondary", use_container_width=True)
+    print_sign_in_days_clicked = st.button("Print Sign In Sheet Days", type="secondary", use_container_width=True)
+with sign_in_cols[3]:
+    st.markdown("<div style='height: 1.65rem;'></div>", unsafe_allow_html=True)
+    print_sign_in_nights_clicked = st.button("Print Sign In Sheet Nights", type="secondary", use_container_width=True)
 
-if print_sign_in_clicked:
+sign_in_shift = "day" if print_sign_in_days_clicked else "night" if print_sign_in_nights_clicked else None
+if sign_in_shift:
     sign_in_dates = _inclusive_date_range(sign_in_start_date, sign_in_end_date)
     if not sign_in_dates:
         st.error("End Date must be the same as or after Start Date.")
     else:
-        with st.spinner("Preparing sign in sheets for printing..."):
+        shift_label = "Day" if sign_in_shift == "day" else "Night"
+        with st.spinner(f"Preparing {shift_label.lower()} shift sign in sheets for printing..."):
             try:
                 sign_in_employees = _fetch_sheet_dataframe("Employee List", ("Employees",), force_refresh=True)
                 sign_in_clients = _fetch_sheet_dataframe("Client Names", ("Clients", "Client List"), force_refresh=True)
@@ -739,17 +744,19 @@ if print_sign_in_clicked:
                     sign_in_employees,
                     sign_in_dates,
                     sign_in_clients,
+                    shift=sign_in_shift,
                 )
                 st.session_state["sign_in_sheet_print_html"] = {
                     "html": build_pdf_image_print_html(sign_in_pdf, auto_print=True),
                     "employee_count": active_employee_count,
                     "client_count": active_client_count,
                     "sheet_count": sign_in_sheet_count,
+                    "shift": sign_in_shift,
                     "start_date": sign_in_start_date.isoformat(),
                     "end_date": sign_in_end_date.isoformat(),
                 }
                 st.success(
-                    f"Print view ready with {sign_in_sheet_count} sheet(s) "
+                    f"{shift_label} shift print view ready with {sign_in_sheet_count} sheet(s) "
                     f"plus {active_employee_count} active employee(s) "
                     f"and {active_client_count} active client(s) per sheet."
                 )
