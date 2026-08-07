@@ -393,38 +393,57 @@ def build_sign_in_sheet_pdf(
     unique_token = int(time.time() * 1000)
 
     try:
+        duplicate_requests = []
+        normalized_dates: list[date] = []
         for index, sign_in_date in enumerate(dates):
             if isinstance(sign_in_date, datetime):
                 sign_in_date = sign_in_date.date()
+            normalized_dates.append(sign_in_date)
             temp_title = f"_Print Sign In {sign_in_date:%Y-%m-%d} {unique_token}-{index + 1}"
-            duplicate_response = manager.batch_update(sheet_id, [{
+            duplicate_requests.append({
                 "duplicateSheet": {
                     "sourceSheetId": source_sheet_id,
                     "newSheetName": temp_title,
                 }
-            }])
-            duplicate_properties = duplicate_response["replies"][0]["duplicateSheet"]["properties"]
+            })
+
+        duplicate_response = manager.batch_update(sheet_id, duplicate_requests)
+        temp_sheets: list[tuple[date, int, str]] = []
+        for index, sign_in_date in enumerate(normalized_dates):
+            duplicate_properties = duplicate_response["replies"][index]["duplicateSheet"]["properties"]
             temp_sheet_id = int(duplicate_properties["sheetId"])
             temp_sheet_title = str(duplicate_properties["title"])
             created_sheet_ids.append(temp_sheet_id)
+            temp_sheets.append((sign_in_date, temp_sheet_id, temp_sheet_title))
 
-            manager.update_values(
-                sheet_id,
-                f"{_a1_sheet_name(temp_sheet_title)}!D6",
-                [[sign_in_date.strftime("%Y/%m/%d")]],
-            )
-            manager.update_values(
-                sheet_id,
-                f"{_a1_sheet_name(temp_sheet_title)}!A11:C74",
-                rows,
-            )
-            manager.update_values(
-                sheet_id,
-                f"{_a1_sheet_name(temp_sheet_title)}!A76:C93",
-                client_rows,
-            )
+        value_updates = []
+        for sign_in_date, _, temp_sheet_title in temp_sheets:
+            sheet_name = _a1_sheet_name(temp_sheet_title)
+            value_updates.extend([
+                {
+                    "range": f"{sheet_name}!D6",
+                    "values": [[sign_in_date.strftime("%Y/%m/%d")]],
+                },
+                {
+                    "range": f"{sheet_name}!A11:C74",
+                    "values": rows,
+                },
+                {
+                    "range": f"{sheet_name}!A76:C93",
+                    "values": client_rows,
+                },
+            ])
 
-            hide_requests = [{
+        batch_value_updater = getattr(manager, "batch_update_values", None)
+        if callable(batch_value_updater):
+            batch_value_updater(sheet_id, value_updates)
+        else:
+            for value_update in value_updates:
+                manager.update_values(sheet_id, value_update["range"], value_update["values"])
+
+        hide_requests = []
+        for _, temp_sheet_id, _ in temp_sheets:
+            hide_requests.extend([{
                 "updateDimensionProperties": {
                     "range": {
                         "sheetId": temp_sheet_id,
@@ -446,7 +465,7 @@ def build_sign_in_sheet_pdf(
                     "properties": {"hiddenByUser": False},
                     "fields": "hiddenByUser",
                 }
-            }]
+            }])
             if first_hidden_row is not None:
                 hide_requests.append({
                     "updateDimensionProperties": {
@@ -473,8 +492,9 @@ def build_sign_in_sheet_pdf(
                         "fields": "hiddenByUser",
                     }
                 })
-            manager.batch_update(sheet_id, hide_requests)
-            time.sleep(0.25)
+        manager.batch_update(sheet_id, hide_requests)
+        time.sleep(0.35)
+        for _, temp_sheet_id, _ in temp_sheets:
             pdf_parts.append(manager.export_sheet_pdf(sheet_id, temp_sheet_id))
     finally:
         if created_sheet_ids:

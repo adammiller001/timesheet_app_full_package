@@ -467,6 +467,30 @@ class GoogleSheetsManager:
         self._data_cache.clear()
         return response.json()
 
+    def batch_update_values(
+        self,
+        spreadsheet_id: str,
+        data: List[Dict[str, Any]],
+        value_input_option: str = "USER_ENTERED",
+    ) -> Dict[str, Any]:
+        """Update multiple precise A1 ranges in one Sheets API request."""
+        if not data:
+            return {}
+        session = self._ensure_session()
+        if session is None or not spreadsheet_id:
+            raise RuntimeError("Google Sheets connection is not configured.")
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values:batchUpdate"
+        response = session.post(
+            url,
+            json={
+                "valueInputOption": value_input_option,
+                "data": data,
+            },
+        )
+        response.raise_for_status()
+        self._data_cache.clear()
+        return response.json()
+
     def export_sheet_pdf(self, spreadsheet_id: str, sheet_id: int) -> bytes:
         """Export one Google Sheet tab as a PDF using Google Sheets rendering."""
         session = self._ensure_session()
