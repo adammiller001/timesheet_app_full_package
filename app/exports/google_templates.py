@@ -203,21 +203,34 @@ def _merge_pdf_bytes(pdf_parts: list[bytes]) -> bytes:
     return out.getvalue()
 
 
-def build_pdf_print_html(pdf_bytes: bytes, *, auto_print: bool = True) -> str:
-    """Embed a PDF and ask the browser to open the printer dialog."""
-    encoded_pdf = base64.b64encode(pdf_bytes).decode("ascii")
+def build_pdf_image_print_html(pdf_bytes: bytes, *, auto_print: bool = True) -> str:
+    """Render PDF pages as browser-printable images and open the print dialog."""
+    try:
+        import fitz
+    except ImportError as exc:
+        raise RuntimeError("PDF print rendering support is not installed. Add PyMuPDF to requirements.txt.") from exc
+
+    image_tags: list[str] = []
+    document = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        for page in document:
+            pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+            encoded_image = base64.b64encode(pixmap.tobytes("png")).decode("ascii")
+            image_tags.append(
+                f'<section class="print-page"><img src="data:image/png;base64,{encoded_image}" alt="Sign In Sheet page"></section>'
+            )
+    finally:
+        document.close()
+
+    if not image_tags:
+        raise RuntimeError("No printable pages were found in the Sign In Sheet PDF.")
+
+    pages_html = "\n".join(image_tags)
     auto_print_script = ""
     if auto_print:
         auto_print_script = """
-            iframe.addEventListener("load", function () {
-                setTimeout(function () {
-                    try {
-                        iframe.contentWindow.focus();
-                        iframe.contentWindow.print();
-                    } catch (error) {
-                        status.textContent = "Use the button below to open the print dialog.";
-                    }
-                }, 500);
+            window.addEventListener("load", function () {
+                setTimeout(openPrintDialog, 500);
             });
         """
     return f"""
@@ -229,7 +242,7 @@ def build_pdf_print_html(pdf_bytes: bytes, *, auto_print: bool = True) -> str:
         body {{
             margin: 0;
             font-family: Arial, Helvetica, sans-serif;
-            background: #f9fafb;
+            background: #ffffff;
             color: #111827;
         }}
         .controls {{
@@ -249,36 +262,71 @@ def build_pdf_print_html(pdf_bytes: bytes, *, auto_print: bool = True) -> str:
             text-decoration: none;
             cursor: pointer;
         }}
-        iframe {{
-            position: fixed;
-            width: 1px;
-            height: 1px;
-            left: -1000px;
-            top: -1000px;
-            border: 0;
+        .print-pages {{
+            background: #ffffff;
+        }}
+        .print-page {{
+            width: 100%;
+            min-height: 100vh;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            background: #ffffff;
+            page-break-after: always;
+        }}
+        .print-page:last-child {{
+            page-break-after: auto;
+        }}
+        .print-page img {{
+            display: block;
+            width: 100%;
+            height: auto;
+        }}
+        @page {{
+            size: letter portrait;
+            margin: 0;
+        }}
+        @media print {{
+            body {{
+                background: #ffffff;
+            }}
+            .controls {{
+                display: none;
+            }}
+            .print-page {{
+                width: 100vw;
+                height: 100vh;
+                min-height: 100vh;
+                overflow: hidden;
+                page-break-after: always;
+            }}
+            .print-page:last-child {{
+                page-break-after: auto;
+            }}
+            .print-page img {{
+                width: 100%;
+                height: 100%;
+                object-fit: contain;
+            }}
         }}
     </style>
     </head>
     <body>
     <div class="controls">
         <span id="status">The print dialog should open automatically.</span>
-        <button onclick="printPdf()">Open print dialog</button>
-        <a id="openPdf" target="_blank">Open PDF</a>
+        <button onclick="openPrintDialog()">Open print dialog</button>
     </div>
-    <iframe id="printFrame"></iframe>
+    <main class="print-pages">
+        {pages_html}
+    </main>
     <script>
-        const pdfUrl = "data:application/pdf;base64,{encoded_pdf}";
-        const iframe = document.getElementById("printFrame");
         const status = document.getElementById("status");
-        const openPdf = document.getElementById("openPdf");
-        iframe.src = pdfUrl;
-        openPdf.href = pdfUrl;
-        function printPdf() {{
+        function openPrintDialog() {{
             try {{
-                iframe.contentWindow.focus();
-                iframe.contentWindow.print();
+                window.focus();
+                window.print();
             }} catch (error) {{
-                window.open(pdfUrl, "_blank");
+                status.textContent = "Use your browser print command to print these sheets.";
             }}
         }}
         {auto_print_script}

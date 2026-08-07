@@ -16,7 +16,7 @@ from app.data.time_data import (
     prepare_time_data_dataframe,
 )
 from app.exports.google_templates import (
-    build_pdf_print_html,
+    build_pdf_image_print_html,
     build_sign_in_sheet_pdf,
     get_google_template_workbook_bytes,
     load_template_sheet_workbook,
@@ -739,7 +739,7 @@ if print_sign_in_clicked:
                     sign_in_dates,
                 )
                 st.session_state["sign_in_sheet_print_html"] = {
-                    "html": build_pdf_print_html(sign_in_pdf, auto_print=True),
+                    "html": build_pdf_image_print_html(sign_in_pdf, auto_print=True),
                     "employee_count": active_employee_count,
                     "sheet_count": sign_in_sheet_count,
                     "start_date": sign_in_start_date.isoformat(),

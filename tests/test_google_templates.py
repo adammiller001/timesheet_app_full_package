@@ -5,7 +5,7 @@ from openpyxl import Workbook
 
 from app.exports.google_templates import (
     _sign_in_employee_rows,
-    build_pdf_print_html,
+    build_pdf_image_print_html,
     get_google_template_workbook_bytes,
     load_template_sheet_workbook,
 )
@@ -88,9 +88,18 @@ def test_sign_in_employee_rows_map_active_columns_l_m_n():
     assert rows[2] == ["", "", ""]
 
 
-def test_pdf_print_html_embeds_pdf_and_calls_print():
-    html = build_pdf_print_html(b"%PDF-1.4 fake", auto_print=True)
+def test_pdf_image_print_html_renders_images_and_calls_print():
+    import fitz
 
-    assert "application/pdf" in html
-    assert "JVBERi0xLjQgZmFrZQ==" in html
-    assert "contentWindow.print()" in html
+    document = fitz.open()
+    page = document.new_page(width=612, height=792)
+    page.insert_text((72, 72), "Sign In Sheet")
+    pdf_bytes = document.tobytes()
+    document.close()
+
+    html = build_pdf_image_print_html(pdf_bytes, auto_print=True)
+
+    assert "data:image/png;base64," in html
+    assert "window.print()" in html
+    assert "application/pdf" not in html
+    assert "Open PDF" not in html
