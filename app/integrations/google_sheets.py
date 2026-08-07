@@ -509,9 +509,23 @@ class GoogleSheetsManager:
             "gridlines": "false",
             "fzr": "true" if repeat_frozen_rows else "false",
         }
-        response = session.get(url, params=params)
-        response.raise_for_status()
-        return response.content
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            response = session.get(url, params=params)
+            try:
+                response.raise_for_status()
+                return response.content
+            except HTTPError as exc:
+                status_code = getattr(exc.response, "status_code", response.status_code)
+                if status_code != 429 or attempt >= max_attempts - 1:
+                    raise
+                retry_after = response.headers.get("Retry-After", "")
+                try:
+                    delay = float(retry_after)
+                except (TypeError, ValueError):
+                    delay = min(1.5 * (attempt + 1), 6.0)
+                time.sleep(delay)
+        raise RuntimeError("Google Sheets PDF export did not complete.")
 
 
 # Global instance

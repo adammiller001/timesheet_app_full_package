@@ -1,4 +1,5 @@
 from app.integrations.google_sheets import GoogleSheetsManager, _values_to_dataframe
+from requests.exceptions import HTTPError
 
 
 def test_values_to_dataframe_preserves_formatted_job_area_text():
@@ -69,3 +70,35 @@ def test_export_sheet_pdf_can_repeat_frozen_rows(monkeypatch):
     assert captured["url"] == "https://docs.google.com/spreadsheets/d/sheet-id/export"
     assert captured["params"]["gid"] == "123"
     assert captured["params"]["fzr"] == "true"
+
+
+def test_export_sheet_pdf_retries_google_rate_limit(monkeypatch):
+    attempts = []
+    sleep_delays = []
+
+    class FakeResponse:
+        def __init__(self, status_code, content=b""):
+            self.status_code = status_code
+            self.content = content
+            self.headers = {"Retry-After": "0.1"} if status_code == 429 else {}
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                error = HTTPError(f"{self.status_code} Error")
+                error.response = self
+                raise error
+
+    class FakeSession:
+        def get(self, url, params):
+            attempts.append((url, params))
+            if len(attempts) == 1:
+                return FakeResponse(429)
+            return FakeResponse(200, b"pdf")
+
+    manager = GoogleSheetsManager()
+    monkeypatch.setattr(manager, "_ensure_session", lambda: FakeSession())
+    monkeypatch.setattr("app.integrations.google_sheets.time.sleep", lambda delay: sleep_delays.append(delay))
+
+    assert manager.export_sheet_pdf("sheet-id", 123, repeat_frozen_rows=True) == b"pdf"
+    assert len(attempts) == 2
+    assert sleep_delays == [0.1]
