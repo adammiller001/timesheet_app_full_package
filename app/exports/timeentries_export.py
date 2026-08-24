@@ -8,6 +8,33 @@ from app.utils.excel_style import clone_row_styles
 EXPECTED_HEADERS = ['Date','Time Record Type','Person Number','Employee Name','Override Trade Class','Post To Payroll','Cost Code / Phase','JobArea','Scope Change','Pay Code','Hours','Night Shift','Premium Rate / Subsistence Rate / Travel Rate','Comments']
 PAYCODE_MAP = {"REG":"211","OT":"212","SUBSISTENCE":"261"}
 
+
+def _clean_rate_value(value) -> str:
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+    text = str(value).strip()
+    return "" if text.lower() in {"nan", "none"} else text
+
+
+def build_daily_import_rate_cells(
+    night_shift,
+    premium_rate="",
+    subsistence_rate="",
+    travel_rate="",
+) -> tuple[str, str]:
+    """Return column M values for RT/OT rows and the subsistence 261 row."""
+    if _clean_rate_value(night_shift):
+        return "NS", "NS"
+    regular_rate_cell = _clean_rate_value(premium_rate) or _clean_rate_value(travel_rate)
+    subsistence_rate_cell = _clean_rate_value(subsistence_rate)
+    return regular_rate_cell, subsistence_rate_cell
+
+
 def _build_rows(sub: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for _, r in sub.iterrows():

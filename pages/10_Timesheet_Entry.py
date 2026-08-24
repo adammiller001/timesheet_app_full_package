@@ -22,6 +22,7 @@ from app.exports.google_templates import (
     load_template_sheet_workbook,
     workbook_to_bytes,
 )
+from app.exports.timeentries_export import build_daily_import_rate_cells
 from app.style_utils import apply_app_theme, apply_watermark
 from datetime import datetime, date, timedelta
 from typing import Optional
@@ -1940,7 +1941,12 @@ if user_type.upper() == "ADMIN":
                                         time_record_type = clean_value(emp_info.get('time_record_type', ''))
                                         post_to_payroll = clean_value(emp_info.get('post_to_payroll', ''))
 
-                                        rate_cell = "NS" if night_shift else (subsistence_rate or premium_rate or travel_rate)
+                                        rate_cell, subsistence_rate_cell = build_daily_import_rate_cells(
+                                            night_shift,
+                                            premium_rate,
+                                            subsistence_rate,
+                                            travel_rate,
+                                        )
 
                                         base_data = [
                                             export_date.strftime('%Y-%m-%d'),  # A - Date
@@ -1988,8 +1994,7 @@ if user_type.upper() == "ADMIN":
                                                     sub_data = base_data.copy()
                                                     sub_data[9] = '261'  # Subsistence pay code
                                                     sub_data[10] = 1.0   # Hours = 1 for subsistence
-                                                    if not night_shift:
-                                                        sub_data[12] = subsistence_rate  # Put subsistence rate in column M
+                                                    sub_data[12] = subsistence_rate_cell  # Put subsistence rate in column M
 
                                                     for col, val in enumerate(sub_data, 1):
                                                         ws.cell(row=current_row, column=col, value=val)
