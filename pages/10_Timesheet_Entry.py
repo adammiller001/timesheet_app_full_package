@@ -1994,6 +1994,7 @@ if user_type.upper() == "ADMIN":
                                                     sub_data = base_data.copy()
                                                     sub_data[9] = '261'  # Subsistence pay code
                                                     sub_data[10] = 1.0   # Hours = 1 for subsistence
+                                                    sub_data[11] = ''     # Night shift applies only to RT/OT rows
                                                     sub_data[12] = subsistence_rate_cell  # Put subsistence rate in column M
 
                                                     for col, val in enumerate(sub_data, 1):

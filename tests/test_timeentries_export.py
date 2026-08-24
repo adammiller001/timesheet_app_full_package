@@ -33,7 +33,7 @@ def test_regular_rate_uses_premium_or_travel_not_subsistence():
     assert travel_subsistence_rate == "225"
 
 
-def test_night_shift_keeps_ns_rate_indicator():
+def test_night_shift_keeps_ns_only_on_regular_rows():
     regular_rate, subsistence_rate = build_daily_import_rate_cells(
         night_shift="Y",
         premium_rate="PREM",
@@ -42,4 +42,4 @@ def test_night_shift_keeps_ns_rate_indicator():
     )
 
     assert regular_rate == "NS"
-    assert subsistence_rate == "NS"
+    assert subsistence_rate == "225"
