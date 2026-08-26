@@ -22,7 +22,7 @@ from app.exports.google_templates import (
     load_template_sheet_workbook,
     workbook_to_bytes,
 )
-from app.exports.timeentries_export import build_daily_import_rate_cells
+from app.exports.timeentries_export import apply_daily_import_data_row_style, build_daily_import_rate_cells
 from app.style_utils import apply_app_theme, apply_watermark
 from datetime import datetime, date, timedelta
 from typing import Optional
@@ -1972,6 +1972,7 @@ if user_type.upper() == "ADMIN":
                                             rt_data[9] = '211'  # Regular time pay code
                                             rt_data[10] = rt_hours
 
+                                            apply_daily_import_data_row_style(ws, current_row)
                                             for col, val in enumerate(rt_data, 1):
                                                 ws.cell(row=current_row, column=col, value=val)
                                             current_row += 1
@@ -1982,6 +1983,7 @@ if user_type.upper() == "ADMIN":
                                             ot_data[9] = '212'  # Overtime pay code
                                             ot_data[10] = ot_hours
 
+                                            apply_daily_import_data_row_style(ws, current_row)
                                             for col, val in enumerate(ot_data, 1):
                                                 ws.cell(row=current_row, column=col, value=val)
                                             current_row += 1
@@ -1997,6 +1999,7 @@ if user_type.upper() == "ADMIN":
                                                     sub_data[11] = ''     # Night shift applies only to RT/OT rows
                                                     sub_data[12] = subsistence_rate_cell  # Put subsistence rate in column M
 
+                                                    apply_daily_import_data_row_style(ws, current_row)
                                                     for col, val in enumerate(sub_data, 1):
                                                         ws.cell(row=current_row, column=col, value=val)
                                                     current_row += 1

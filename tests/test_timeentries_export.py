@@ -1,4 +1,7 @@
-from app.exports.timeentries_export import build_daily_import_rate_cells
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Side
+
+from app.exports.timeentries_export import apply_daily_import_data_row_style, build_daily_import_rate_cells
 
 
 def test_subsistence_rate_only_goes_on_subsistence_line():
@@ -43,3 +46,34 @@ def test_night_shift_keeps_ns_only_on_regular_rows():
 
     assert regular_rate == "NS"
     assert subsistence_rate == "225"
+
+
+def test_daily_import_style_matches_template_data_row_after_row_34():
+    wb = Workbook()
+    ws = wb.active
+    light_side = Side(style="thin", color="D9D9D9")
+    black_side = Side(style="thick", color="000000")
+
+    for col_idx in range(1, 16):
+        template_cell = ws.cell(row=4, column=col_idx)
+        template_cell.alignment = Alignment(horizontal="center", vertical="center")
+        template_cell.border = Border(
+            left=light_side,
+            right=light_side,
+            top=light_side,
+            bottom=light_side,
+        )
+        ws.cell(row=33, column=col_idx).border = Border(bottom=black_side)
+        ws.cell(row=34, column=col_idx).alignment = Alignment(horizontal="left", vertical="bottom")
+        ws.cell(row=34, column=col_idx).border = Border(top=black_side)
+
+    ws.row_dimensions[4].height = 18
+
+    apply_daily_import_data_row_style(ws, 33)
+    apply_daily_import_data_row_style(ws, 34)
+
+    assert ws.cell(row=34, column=3).alignment.horizontal == "center"
+    assert ws.cell(row=34, column=3).alignment.vertical == "center"
+    assert ws.cell(row=33, column=3).border.bottom.style == "thin"
+    assert ws.cell(row=34, column=3).border.top.style == "thin"
+    assert ws.row_dimensions[34].height == 18
