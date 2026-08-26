@@ -22,13 +22,30 @@ from app.exports.google_templates import (
     load_template_sheet_workbook,
     workbook_to_bytes,
 )
-from app.exports.timeentries_export import apply_daily_import_data_row_style, build_daily_import_rate_cells
+from app.exports.timeentries_export import build_daily_import_rate_cells
 from app.style_utils import apply_app_theme, apply_watermark
 from datetime import datetime, date, timedelta
 from typing import Optional
 
 apply_app_theme()
 apply_watermark()
+
+
+def apply_daily_import_data_row_style(ws, row_num: int, template_row: int = 4, max_col: int = 15) -> None:
+    """Apply the normal Daily Import data row style to a generated row."""
+    if template_row in ws.row_dimensions:
+        ws.row_dimensions[row_num].height = ws.row_dimensions[template_row].height
+
+    for col_idx in range(1, max_col + 1):
+        source = ws.cell(row=template_row, column=col_idx)
+        target = ws.cell(row=row_num, column=col_idx)
+        if source.has_style:
+            target.font = copy(source.font)
+            target.fill = copy(source.fill)
+            target.border = copy(source.border)
+            target.alignment = copy(source.alignment)
+            target.protection = copy(source.protection)
+            target.number_format = source.number_format
 
 # Try to use your helpers; fall back gracefully if not present
 try:
