@@ -1,7 +1,12 @@
+import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Side
 
-from app.exports.timeentries_export import apply_daily_import_data_row_style, build_daily_import_rate_cells
+from app.exports.timeentries_export import (
+    apply_daily_import_data_row_style,
+    build_daily_import_rate_cells,
+    filter_daily_import_rows,
+)
 
 
 def test_subsistence_rate_only_goes_on_subsistence_line():
@@ -77,3 +82,32 @@ def test_daily_import_style_matches_template_data_row_after_row_34():
     assert ws.cell(row=33, column=3).border.bottom.style == "thin"
     assert ws.cell(row=34, column=3).border.top.style == "thin"
     assert ws.row_dimensions[34].height == 18
+
+
+def test_filter_daily_import_rows_uses_employee_list_y_flag_only():
+    day_df = pd.DataFrame(
+        {
+            "Name": ["ADAM MILLER", "TRAVIS TYCHKOWSKY", "GREGG MORRISON"],
+            "Job Number": ["2624138043", "2624138043", "2624138043"],
+        }
+    )
+    employees_df = pd.DataFrame(
+        {
+            "Employee Name": ["Adam Miller", "Travis Tychkowsky", "Gregg Morrison"],
+            "Daily Import": ["Y", "", "TRUE"],
+            "Active": ["TRUE", "TRUE", "TRUE"],
+        }
+    )
+
+    filtered = filter_daily_import_rows(day_df, employees_df)
+
+    assert filtered["Name"].tolist() == ["ADAM MILLER", "GREGG MORRISON"]
+
+
+def test_filter_daily_import_rows_keeps_old_behavior_when_column_missing():
+    day_df = pd.DataFrame({"Name": ["ADAM MILLER", "TRAVIS TYCHKOWSKY"]})
+    employees_df = pd.DataFrame({"Employee Name": ["Adam Miller", "Travis Tychkowsky"]})
+
+    filtered = filter_daily_import_rows(day_df, employees_df)
+
+    assert filtered["Name"].tolist() == ["ADAM MILLER", "TRAVIS TYCHKOWSKY"]

@@ -59,9 +59,9 @@ def test_google_template_export_falls_back_to_existing_session(monkeypatch):
 def test_sign_in_employee_rows_map_active_columns_l_m_n():
     employees = pd.DataFrame(
         [
-            ["EMPL", "S-MIL10", "ADAM MILLER", "", "", "", "", "", "", "", "", "PTW", "Supervisor", "TRUE"],
-            ["EMPL", "72454", "ANDY LYNDS", "", "", "", "", "", "", "", "", "PTW", "Electrician", "FALSE"],
-            ["EMPL", "17446", "TRAVIS TYCHKOWSKY", "", "", "", "", "", "", "", "", "PTW", "Welder", "Y"],
+            ["EMPL", "S-MIL10", "ADAM MILLER", "", "", "", "", "", "", "", "", "PTW", "Supervisor", "Y", "TRUE"],
+            ["EMPL", "72454", "ANDY LYNDS", "", "", "", "", "", "", "", "", "PTW", "Electrician", "", "FALSE"],
+            ["EMPL", "17446", "TRAVIS TYCHKOWSKY", "", "", "", "", "", "", "", "", "PTW", "Welder", "", "Y"],
         ],
         columns=[
             "Time Record Type",
@@ -77,6 +77,7 @@ def test_sign_in_employee_rows_map_active_columns_l_m_n():
             "Travel Rate",
             "Company Name",
             "Craft / Certification",
+            "Daily Import",
             "Active",
         ],
     )

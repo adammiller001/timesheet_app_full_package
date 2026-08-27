@@ -1605,6 +1605,22 @@ if user_type.upper() == "ADMIN":
                     pass
                 return ""
 
+            def _has_daily_import_column(employee_df):
+                if not isinstance(employee_df, pd.DataFrame) or employee_df.empty:
+                    return False
+                return _find_col(
+                    employee_df,
+                    ["Daily Import", "DailyImport", "Include Daily Import", "Include in Daily Import"],
+                ) is not None
+
+            def _get_employee_daily_import(emp_row):
+                """Return the Daily Import flag from Employee List column N, with header fallbacks."""
+                return _get_employee_list_value(
+                    emp_row,
+                    ["Daily Import", "DailyImport", "Include Daily Import", "Include in Daily Import"],
+                    13,
+                )
+
             def _write_employee_to_daily_time(ws, emp_entries, row_num, employee_info, cost_code_descriptions):
                 """Write employee data to specific row in Daily Time template"""
                 if not emp_entries:
@@ -1724,6 +1740,7 @@ if user_type.upper() == "ADMIN":
                 filtered_data = time_data_for_export[
                     pd.to_datetime(time_data_for_export['Date']).dt.date == export_date
                 ].copy()
+                daily_import_filter_enabled = False
 
                 if filtered_data.empty:
                     st.warning(f"No data found for {export_date}")
@@ -1749,6 +1766,9 @@ if user_type.upper() == "ADMIN":
                             employee_df = safe_read_excel(XLSX, "Employee List")
                             employee_info = {}
                             if not employee_df.empty:
+                                employee_df = employee_df.copy()
+                                employee_df.columns = [str(c).strip() for c in employee_df.columns]
+                                daily_import_filter_enabled = _has_daily_import_column(employee_df)
                                 for _, emp_row in employee_df.iterrows():
                                     name = str(emp_row.get("Employee Name", ""))
                                     employee_info[name] = {
@@ -1759,7 +1779,8 @@ if user_type.upper() == "ADMIN":
                                         'subsistence_rate': _get_employee_list_value(emp_row, ["Subsistence Rate", "Subsistence"], 9),
                                         'travel_rate': _get_employee_list_value(emp_row, ["Travel Rate", "Travel"], 10),
                                         'post_to_payroll': _get_employee_post_to_payroll(emp_row),
-                                        'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip()
+                                        'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip(),
+                                        'daily_import': _get_employee_daily_import(emp_row),
                                     }
 
                             # Load cost codes for descriptions
@@ -1908,6 +1929,7 @@ if user_type.upper() == "ADMIN":
                                 if isinstance(employee_df, pd.DataFrame) and not employee_df.empty:
                                     employee_df = employee_df.copy()
                                     employee_df.columns = [str(c).strip() for c in employee_df.columns]
+                                    daily_import_filter_enabled = _has_daily_import_column(employee_df)
                                     for _, emp_row in employee_df.iterrows():
                                         name = str(emp_row.get("Employee Name", "")).strip()
                                         if not name:
@@ -1920,7 +1942,8 @@ if user_type.upper() == "ADMIN":
                                             'travel_rate': _get_employee_list_value(emp_row, ["Travel Rate", "Travel"], 10),
                                             'post_to_payroll': _get_employee_post_to_payroll(emp_row),
                                             'night_shift': _get_employee_night_shift(emp_row),
-                                            'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip()
+                                            'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip(),
+                                            'daily_import': _get_employee_daily_import(emp_row),
                                         }
 
                             unique_jobs = filtered_data['Job Number'].dropna().unique()
@@ -1937,10 +1960,13 @@ if user_type.upper() == "ADMIN":
                                     wb, ws = load_template_sheet_workbook(template_workbook_bytes, ("TimeEntries", "Time Entries"))
 
                                     current_row = 4
+                                    wrote_import_rows = False
                                     for _, row in job_data.iterrows():
                                         # Get employee data for rates
                                         emp_name = str(row.get('Name', ''))
                                         emp_info = _employee_info_lookup(employee_info, emp_name)
+                                        if daily_import_filter_enabled and not _is_truthy(emp_info.get('daily_import', '')):
+                                            continue
 
                                         # Helper function to clean values
                                         def clean_value(val):
@@ -1992,6 +2018,7 @@ if user_type.upper() == "ADMIN":
                                             apply_daily_import_data_row_style(ws, current_row)
                                             for col, val in enumerate(rt_data, 1):
                                                 ws.cell(row=current_row, column=col, value=val)
+                                            wrote_import_rows = True
                                             current_row += 1
 
                                         ot_hours = float(row.get('OT Hours', 0) or 0)
@@ -2003,6 +2030,7 @@ if user_type.upper() == "ADMIN":
                                             apply_daily_import_data_row_style(ws, current_row)
                                             for col, val in enumerate(ot_data, 1):
                                                 ws.cell(row=current_row, column=col, value=val)
+                                            wrote_import_rows = True
                                             current_row += 1
 
                                         # Add subsistence entry if employee has subsistence rate
@@ -2019,9 +2047,13 @@ if user_type.upper() == "ADMIN":
                                                     apply_daily_import_data_row_style(ws, current_row)
                                                     for col, val in enumerate(sub_data, 1):
                                                         ws.cell(row=current_row, column=col, value=val)
+                                                    wrote_import_rows = True
                                                     current_row += 1
                                             except (ValueError, TypeError):
                                                 pass  # Skip if subsistence rate is not a valid number
+
+                                    if not wrote_import_rows:
+                                        continue
 
                                     zip_file.writestr(
                                         f"{export_date.strftime('%m-%d-%Y')} - {job} - Daily Import.xlsx",

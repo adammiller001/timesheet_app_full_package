@@ -156,7 +156,7 @@ def _sign_in_employee_rows(employees_df: pd.DataFrame, shift: str | None = None)
     company_col = _find_column(employees_df, ("Company Name", "Company", "Employer"), 11)
     name_col = _find_column(employees_df, ("Employee Name", "Name", "Employee"), 2)
     craft_col = _find_column(employees_df, ("Craft / Certification", "Craft Certification", "Craft", "Certification"), 12)
-    active_col = _find_column(employees_df, ("Active", "Is Active", "Enabled"), 13)
+    active_col = _find_column(employees_df, ("Active", "Is Active", "Enabled"), 14)
     night_col = _find_column(employees_df, ("Night Shift", "NightShift", "Nights"), 7)
 
     if active_col:

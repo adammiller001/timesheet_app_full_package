@@ -2,12 +2,71 @@ import io
 import pandas as pd
 from datetime import date
 from copy import copy
-from app.data.workbook import get_time_data, pad_job_area
+from app.data.workbook import get_employees, get_time_data, pad_job_area
 from app.exports.google_templates import get_google_template_workbook_bytes, load_template_sheet_workbook
 from app.utils.excel_style import clone_row_styles
 
 EXPECTED_HEADERS = ['Date','Time Record Type','Person Number','Employee Name','Override Trade Class','Post To Payroll','Cost Code / Phase','JobArea','Scope Change','Pay Code','Hours','Night Shift','Premium Rate / Subsistence Rate / Travel Rate','Comments']
 PAYCODE_MAP = {"REG":"211","OT":"212","SUBSISTENCE":"261"}
+
+
+def _normalize_employee_key(name) -> str:
+    return ''.join(ch for ch in str(name or '').upper() if ch.isalnum())
+
+
+def _is_truthy_flag(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().upper()
+    if text in {"TRUE", "YES", "Y", "1", "ON"}:
+        return True
+    try:
+        return float(text) == 1.0
+    except Exception:
+        return False
+
+
+def _find_column(df: pd.DataFrame, candidates: tuple[str, ...] | list[str]):
+    normalized_cols = {
+        ''.join(ch for ch in str(col).strip().lower() if ch.isalnum()): col
+        for col in df.columns
+    }
+    for candidate in candidates:
+        match = normalized_cols.get(''.join(ch for ch in str(candidate).strip().lower() if ch.isalnum()))
+        if match:
+            return match
+    return None
+
+
+def filter_daily_import_rows(day_df: pd.DataFrame, employees_df: pd.DataFrame) -> pd.DataFrame:
+    """Keep only Time Data rows whose employee is marked for Daily Import."""
+    if day_df is None or day_df.empty or employees_df is None or employees_df.empty:
+        return day_df
+
+    employees = employees_df.copy()
+    employees.columns = [str(c).strip() for c in employees.columns]
+    daily_import_col = _find_column(
+        employees,
+        ("Daily Import", "DailyImport", "Include Daily Import", "Include in Daily Import"),
+    )
+    if not daily_import_col:
+        return day_df
+
+    name_col = _find_column(employees, ("Employee Name", "Name", "Employee")) or (
+        employees.columns[2] if len(employees.columns) > 2 else None
+    )
+    if not name_col:
+        return day_df.iloc[0:0].copy()
+
+    included_names = {
+        _normalize_employee_key(row.get(name_col, ""))
+        for _, row in employees.iterrows()
+        if _is_truthy_flag(row.get(daily_import_col, ""))
+    }
+    if not included_names or "Name" not in day_df.columns:
+        return day_df.iloc[0:0].copy()
+
+    return day_df[day_df["Name"].apply(lambda value: _normalize_employee_key(value) in included_names)].copy()
 
 
 def _clean_rate_value(value) -> str:
@@ -125,6 +184,9 @@ def per_job_exports(xlsx_path: str, export_date: date):
         return []
     dmask = td["Date"].astype(str).str[:10] == export_date.strftime("%Y-%m-%d")
     day_df = td[dmask].copy()
+    if day_df.empty:
+        return []
+    day_df = filter_daily_import_rows(day_df, get_employees(xlsx_path))
     if day_df.empty:
         return []
     template_bytes = get_google_template_workbook_bytes()
