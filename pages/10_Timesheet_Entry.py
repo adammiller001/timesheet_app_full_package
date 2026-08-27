@@ -1735,6 +1735,11 @@ if user_type.upper() == "ADMIN":
 
                 return rows_used
 
+            def _daily_time_employee_sort_key(employee_data):
+                """Sort Daily Time employee groups by the name that prints in column A."""
+                name = str(employee_data.get('name', '') or '').strip()
+                return (not bool(name), name.upper())
+
             def create_template_exports(export_date):
                 """Create template-based exports from the live Google workbook tabs."""
                 filtered_data = time_data_for_export[
@@ -1819,6 +1824,9 @@ if user_type.upper() == "ADMIN":
                                     indirect_employees.append(employee_data)
                                 else:
                                     direct_employees.append(employee_data)
+
+                            indirect_employees.sort(key=_daily_time_employee_sort_key)
+                            direct_employees.sort(key=_daily_time_employee_sort_key)
 
                             # Place indirect employees in rows 8-30
                             current_row = 8
