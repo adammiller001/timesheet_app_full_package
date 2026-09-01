@@ -2047,6 +2047,7 @@ if user_type.upper() == "ADMIN":
                                                 subsistence_amount = float(subsistence_rate)
                                                 if subsistence_amount > 0:
                                                     sub_data = base_data.copy()
+                                                    sub_data[1] = 'SUBS'  # Subsistence rows use SUBS time record type
                                                     sub_data[9] = '261'  # Subsistence pay code
                                                     sub_data[10] = 1.0   # Hours = 1 for subsistence
                                                     sub_data[11] = ''     # Night shift applies only to RT/OT rows
