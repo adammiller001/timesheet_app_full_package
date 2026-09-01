@@ -1740,6 +1740,13 @@ if user_type.upper() == "ADMIN":
                 name = str(employee_data.get('name', '') or '').strip()
                 return (not bool(name), name.upper())
 
+            def _daily_import_night_trade_class(trade_class):
+                """Append N to the override trade class for night-shift total rows."""
+                trade_text = str(trade_class or '').strip()
+                if not trade_text:
+                    return 'N'
+                return trade_text if trade_text.upper().endswith('N') else f"{trade_text}N"
+
             def create_template_exports(export_date):
                 """Create template-based exports from the live Google workbook tabs."""
                 filtered_data = time_data_for_export[
@@ -2037,6 +2044,20 @@ if user_type.upper() == "ADMIN":
 
                                             apply_daily_import_data_row_style(ws, current_row)
                                             for col, val in enumerate(ot_data, 1):
+                                                ws.cell(row=current_row, column=col, value=val)
+                                            wrote_import_rows = True
+                                            current_row += 1
+
+                                        night_shift_total_hours = rt_hours + ot_hours
+                                        if _is_truthy(night_shift) and night_shift_total_hours > 0:
+                                            night_data = base_data.copy()
+                                            night_data[4] = _daily_import_night_trade_class(night_data[4])
+                                            night_data[5] = ''     # Night premium total rows do not post to payroll
+                                            night_data[9] = '211'
+                                            night_data[10] = night_shift_total_hours
+
+                                            apply_daily_import_data_row_style(ws, current_row)
+                                            for col, val in enumerate(night_data, 1):
                                                 ws.cell(row=current_row, column=col, value=val)
                                             wrote_import_rows = True
                                             current_row += 1
