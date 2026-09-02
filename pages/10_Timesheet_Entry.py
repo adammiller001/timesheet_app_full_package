@@ -1741,11 +1741,8 @@ if user_type.upper() == "ADMIN":
                 return (not bool(name), name.upper())
 
             def _daily_import_night_trade_class(trade_class):
-                """Append N to the override trade class for night-shift total rows."""
-                trade_text = str(trade_class or '').strip()
-                if not trade_text:
-                    return 'N'
-                return trade_text if trade_text.upper().endswith('N') else f"{trade_text}N"
+                """Use NS as the override trade class for night-shift total rows."""
+                return 'NS'
 
             def create_template_exports(export_date):
                 """Create template-based exports from the live Google workbook tabs."""

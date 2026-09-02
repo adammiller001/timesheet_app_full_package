@@ -13,6 +13,7 @@ def test_night_shift_daily_import_rows_add_total_hours_line():
     source = source_path.read_text(encoding="utf-8")
 
     assert "night_shift_total_hours = rt_hours + ot_hours" in source
+    assert "return 'NS'" in source
     assert "night_data[4] = _daily_import_night_trade_class(night_data[4])" in source
     assert "night_data[5] = ''" in source
     assert "night_data[9] = '211'" in source
