@@ -25,11 +25,12 @@ from app.exports.google_templates import (
 )
 from app.exports.timeentries_export import build_daily_import_rate_cells
 from app.features.project_assignments import (
-    build_job_key,
+    build_job_number_key,
+    build_job_number_options,
     build_job_options as build_project_job_options,
     filter_jobs_for_user,
     is_truthy as assignment_is_truthy,
-    job_key_from_option,
+    job_number_key_from_option,
     parse_job_option,
     resolve_clients_for_jobs,
     resolve_employees_for_jobs,
@@ -596,20 +597,20 @@ def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
             name = str(row.get("Name", "")).strip()
             if not name:
                 continue
-            job_key = build_job_key(row.get("Job Number", ""), row.get("Job Area", ""))
-            if job_key not in project_lookups:
+            job_number_key = build_job_number_key(row.get("Job Number", ""))
+            if job_number_key not in project_lookups:
                 project_employees = resolve_employees_for_jobs(
                     employee_df,
                     assignments_df,
-                    [job_key] if job_key else [],
+                    [job_number_key] if job_number_key else [],
                 )
                 project_name_col = _find_col(project_employees, ["Employee Name", "Name", "Employee"])
-                project_lookups[job_key] = {
+                project_lookups[job_number_key] = {
                     _normalize_employee_key(employee.get(project_name_col, "")): employee
                     for _, employee in project_employees.iterrows()
                     if project_name_col and _normalize_employee_key(employee.get(project_name_col, ""))
                 }
-            employee = project_lookups.get(job_key, {}).get(_normalize_employee_key(name))
+            employee = project_lookups.get(job_number_key, {}).get(_normalize_employee_key(name))
             if employee is None:
                 continue
 
@@ -756,13 +757,14 @@ _client_job_assignments_df = _fetch_sheet_dataframe(
 )
 _accessible_jobs_df = filter_jobs_for_user(_project_jobs_df, _user_job_assignments_df, user)
 job_options = build_project_job_options(_accessible_jobs_df)
+sign_in_job_options = build_job_number_options(_accessible_jobs_df)
 job_total_rows = len(_project_jobs_df) if isinstance(_project_jobs_df, pd.DataFrame) else 0
 
 
 st.markdown("#### Sign In Sheets")
 sign_in_job_choices = st.multiselect(
     "Jobs to include",
-    options=job_options,
+    options=sign_in_job_options,
     default=[],
     placeholder="Select one or more jobs...",
     key="sign_in_job_choices",
@@ -808,7 +810,7 @@ if sign_in_shift:
         shift_label = "Day" if sign_in_shift == "day" else "Night"
         with st.spinner(f"Preparing {shift_label.lower()} shift sign in sheets for printing..."):
             try:
-                selected_job_keys = [job_key_from_option(option) for option in sign_in_job_choices]
+                selected_job_numbers = [build_job_number_key(option) for option in sign_in_job_choices]
                 employee_list = _fetch_sheet_dataframe("Employee List", ("Employees",), force_refresh=True)
                 employee_assignments = _fetch_sheet_dataframe(
                     "Employee Job Assignments",
@@ -824,13 +826,13 @@ if sign_in_shift:
                 sign_in_employees = resolve_employees_for_jobs(
                     employee_list,
                     employee_assignments,
-                    selected_job_keys,
+                    selected_job_numbers,
                     shift=sign_in_shift,
                 )
                 sign_in_clients = resolve_clients_for_jobs(
                     client_list,
                     client_assignments,
-                    selected_job_keys,
+                    selected_job_numbers,
                     shift=sign_in_shift,
                 )
                 sign_in_pdf, active_employee_count, active_client_count, sign_in_sheet_count = build_sign_in_sheet_pdf(
@@ -852,7 +854,7 @@ if sign_in_shift:
                     f"{shift_label} shift print view ready with {sign_in_sheet_count} sheet(s) "
                     f"plus {active_employee_count} active employee(s) "
                     f"and {active_client_count} active client(s) across "
-                    f"{len(sign_in_job_choices)} selected job(s) per sheet."
+                    f"{len(sign_in_job_choices)} selected Job Number(s) per sheet."
                 )
             except Exception as exc:
                 st.error(f"Could not prepare Sign In Sheet print view: {exc}")
@@ -1163,11 +1165,11 @@ try:
         employee_total_rows = len(_emp_df_raw)
         _emp_df_raw = _emp_df_raw.copy()
         _emp_df_raw.columns = [str(c).strip() for c in _emp_df_raw.columns]
-        selected_job_key = job_key_from_option(job_choice) if job_choice else ""
+        selected_job_number = job_number_key_from_option(job_choice) if job_choice else ""
         _emp_df = resolve_employees_for_jobs(
             _emp_df_raw,
             _employee_job_assignments_df,
-            [selected_job_key] if selected_job_key else [],
+            [selected_job_number] if selected_job_number else [],
         )
         cols = list(_emp_df.columns)
         name_col = _find_col(_emp_df, ["Employee Name", "Name", "Employee"]) or (cols[2] if len(cols) > 2 else cols[0])
@@ -1823,15 +1825,12 @@ if user_type.upper() == "ADMIN":
                             project_employee_info_cache = {}
 
                             def _employee_info_for_entry(entry):
-                                job_key = build_job_key(
-                                    entry.get('Job Number', ''),
-                                    entry.get('Job Area', ''),
-                                )
-                                if job_key not in project_employee_info_cache:
+                                job_number_key = build_job_number_key(entry.get('Job Number', ''))
+                                if job_number_key not in project_employee_info_cache:
                                     resolved_employees = resolve_employees_for_jobs(
                                         employee_df,
                                         employee_assignments_df,
-                                        [job_key] if job_key else [],
+                                        [job_number_key] if job_number_key else [],
                                     )
                                     resolved_info = {}
                                     resolved_name_col = _find_col(
@@ -1843,11 +1842,11 @@ if user_type.upper() == "ADMIN":
                                             resolved_name = str(resolved_employee.get(resolved_name_col, "")).strip()
                                             if resolved_name:
                                                 resolved_info[resolved_name] = _employee_info_from_row(resolved_employee)
-                                    project_employee_info_cache[job_key] = resolved_info
+                                    project_employee_info_cache[job_number_key] = resolved_info
 
                                 employee_name = str(entry.get('Name', '')).strip()
                                 project_details = _employee_info_lookup(
-                                    project_employee_info_cache.get(job_key, {}),
+                                    project_employee_info_cache.get(job_number_key, {}),
                                     employee_name,
                                 )
                                 return project_details or _employee_info_lookup(employee_info, employee_name)
@@ -2037,15 +2036,12 @@ if user_type.upper() == "ADMIN":
                                 project_employee_info_cache = {}
 
                                 def _employee_info_for_entry(entry):
-                                    job_key = build_job_key(
-                                        entry.get('Job Number', ''),
-                                        entry.get('Job Area', ''),
-                                    )
-                                    if job_key not in project_employee_info_cache:
+                                    job_number_key = build_job_number_key(entry.get('Job Number', ''))
+                                    if job_number_key not in project_employee_info_cache:
                                         resolved_employees = resolve_employees_for_jobs(
                                             employee_df,
                                             employee_assignments_df,
-                                            [job_key] if job_key else [],
+                                            [job_number_key] if job_number_key else [],
                                         )
                                         resolved_info = {}
                                         resolved_name_col = _find_col(
@@ -2061,11 +2057,11 @@ if user_type.upper() == "ADMIN":
                                                     resolved_info[resolved_name] = _employee_info_from_row(
                                                         resolved_employee
                                                     )
-                                        project_employee_info_cache[job_key] = resolved_info
+                                        project_employee_info_cache[job_number_key] = resolved_info
 
                                     employee_name = str(entry.get('Name', '')).strip()
                                     project_details = _employee_info_lookup(
-                                        project_employee_info_cache.get(job_key, {}),
+                                        project_employee_info_cache.get(job_number_key, {}),
                                         employee_name,
                                     )
                                     return project_details or _employee_info_lookup(

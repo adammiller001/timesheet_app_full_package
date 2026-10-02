@@ -96,19 +96,19 @@ This guide will help you set up Google Sheets integration for your PTW Timesheet
 
 ## Project Assignment Worksheets
 
-The app uses `Job Number` plus `Job Area` as the project key. This keeps areas such as
-`005` distinct in the workbook while still matching numeric values that Google Sheets may
-return as `5`.
+The app uses `Job Number` as the project assignment key. Job Areas are sub-jobs: they
+remain available in Timesheet Entry and are recorded in Time Data, but they do not require
+separate user, employee, or client assignments.
 
 Three worksheets control project access and project-specific values:
 
-- `User Job Assignments`: one row per user and job area. Only active assignments appear
-  in that user's Timesheet Entry and Sign In Sheet job selectors.
-- `Employee Job Assignments`: one row per employee and job area. This controls whether
+- `User Job Assignments`: one row per user and Job Number. An active assignment makes all
+  active Job Areas under that Job Number available in Timesheet Entry.
+- `Employee Job Assignments`: one row per employee and Job Number. This controls whether
   the employee appears for that job and can override time record type, trade class, truck,
   payroll flags, shift, rates, company, craft/certification, and Daily Import eligibility
   for that assignment.
-- `Client Job Assignments`: one row per client and job area. This controls sign-in-sheet
+- `Client Job Assignments`: one row per client and Job Number. This controls sign-in-sheet
   inclusion, certification, and day/night shift for that assignment.
 
 To add a new project:

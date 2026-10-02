@@ -53,17 +53,9 @@ def _canonical_identifier(value) -> str:
     return text.upper()
 
 
-def _canonical_area(value) -> str:
-    text = _canonical_identifier(value)
-    if text.isdigit():
-        return str(int(text))
-    return text
-
-
-def build_job_key(job_number, job_area) -> str:
-    job = _canonical_identifier(job_number)
-    area = _canonical_area(job_area)
-    return f"{job}::{area}" if job or area else ""
+def build_job_number_key(job_number) -> str:
+    """Return the canonical project key used by assignment worksheets."""
+    return _canonical_identifier(job_number)
 
 
 def parse_job_option(option: str) -> tuple[str, str, str]:
@@ -72,9 +64,9 @@ def parse_job_option(option: str) -> tuple[str, str, str]:
     return parts[0].strip(), parts[1].strip(), parts[2].strip()
 
 
-def job_key_from_option(option: str) -> str:
-    job_number, job_area, _ = parse_job_option(option)
-    return build_job_key(job_number, job_area)
+def job_number_key_from_option(option: str) -> str:
+    job_number, _, _ = parse_job_option(option)
+    return build_job_number_key(job_number)
 
 
 def _active_rows(df: pd.DataFrame) -> pd.DataFrame:
@@ -87,17 +79,13 @@ def _active_rows(df: pd.DataFrame) -> pd.DataFrame:
     return rows
 
 
-def _rows_with_job_keys(df: pd.DataFrame) -> pd.DataFrame:
+def _rows_with_job_numbers(df: pd.DataFrame) -> pd.DataFrame:
     rows = df.copy()
     job_column = find_column(rows, JOB_NUMBER_COLUMNS)
-    area_column = find_column(rows, JOB_AREA_COLUMNS)
-    if job_column is None or area_column is None:
+    if job_column is None:
         return pd.DataFrame()
-    rows["_project_job_key"] = rows.apply(
-        lambda row: build_job_key(row.get(job_column, ""), row.get(area_column, "")),
-        axis=1,
-    )
-    return rows[rows["_project_job_key"] != ""]
+    rows["_project_job_number_key"] = rows[job_column].apply(build_job_number_key)
+    return rows[rows["_project_job_number_key"] != ""]
 
 
 def filter_jobs_for_user(
@@ -106,24 +94,23 @@ def filter_jobs_for_user(
     user_email: str,
 ) -> pd.DataFrame:
     """Return globally active jobs assigned to the signed-in user."""
-    active_jobs = _rows_with_job_keys(_active_rows(jobs_df))
+    active_jobs = _rows_with_job_numbers(_active_rows(jobs_df))
     if active_jobs.empty:
         return active_jobs
 
     email_column = find_column(user_assignments_df, ("Email", "User Email", "Email Address", "E-mail"))
     job_column = find_column(user_assignments_df, JOB_NUMBER_COLUMNS)
-    area_column = find_column(user_assignments_df, JOB_AREA_COLUMNS)
-    if email_column is None or job_column is None or area_column is None:
-        return active_jobs.iloc[0:0].drop(columns=["_project_job_key"], errors="ignore")
+    if email_column is None or job_column is None:
+        return active_jobs.iloc[0:0].drop(columns=["_project_job_number_key"], errors="ignore")
 
-    assignments = _rows_with_job_keys(_active_rows(user_assignments_df))
+    assignments = _rows_with_job_numbers(_active_rows(user_assignments_df))
     normalized_email = str(user_email or "").strip().lower()
     assignments = assignments[
         assignments[email_column].astype(str).str.strip().str.lower() == normalized_email
     ]
-    allowed_keys = set(assignments["_project_job_key"].tolist())
-    return active_jobs[active_jobs["_project_job_key"].isin(allowed_keys)].drop(
-        columns=["_project_job_key"],
+    allowed_keys = set(assignments["_project_job_number_key"].tolist())
+    return active_jobs[active_jobs["_project_job_number_key"].isin(allowed_keys)].drop(
+        columns=["_project_job_number_key"],
         errors="ignore",
     )
 
@@ -152,6 +139,21 @@ def build_job_options(jobs_df: pd.DataFrame) -> list[str]:
         if description:
             label += f" - {description}"
         options.append(label)
+    return sorted(dict.fromkeys(options))
+
+
+def build_job_number_options(jobs_df: pd.DataFrame) -> list[str]:
+    """Return unique Job Numbers for project-level actions such as sign-in sheets."""
+    if not isinstance(jobs_df, pd.DataFrame) or jobs_df.empty:
+        return []
+    job_column = find_column(jobs_df, JOB_NUMBER_COLUMNS, 2)
+    if job_column is None:
+        return []
+    options = [
+        _clean_value(value)
+        for value in jobs_df[job_column].tolist()
+        if _clean_value(value)
+    ]
     return sorted(dict.fromkeys(options))
 
 
@@ -193,7 +195,7 @@ def _set_from_assignment(
 def resolve_employees_for_jobs(
     employees_df: pd.DataFrame,
     assignments_df: pd.DataFrame,
-    job_keys: Iterable[str],
+    job_numbers: Iterable[str],
     shift: str | None = None,
 ) -> pd.DataFrame:
     """Resolve active employee rows with project-specific assignment values."""
@@ -201,17 +203,16 @@ def resolve_employees_for_jobs(
     assignment_id_column = find_column(assignments_df, ("Person Number", "Employee Number"))
     assignment_name_column = find_column(assignments_df, ("Employee Name", "Name", "Employee"))
     assignment_job_column = find_column(assignments_df, JOB_NUMBER_COLUMNS)
-    assignment_area_column = find_column(assignments_df, JOB_AREA_COLUMNS)
 
-    if assignment_job_column is None or assignment_area_column is None:
+    if assignment_job_column is None:
         return active_employees.iloc[0:0].copy()
 
-    selected_keys = {str(key) for key in job_keys if key}
+    selected_keys = {build_job_number_key(job_number) for job_number in job_numbers if job_number}
     if not selected_keys:
         return active_employees.iloc[0:0].copy()
 
-    assignments = _rows_with_job_keys(_active_rows(assignments_df))
-    assignments = assignments[assignments["_project_job_key"].isin(selected_keys)]
+    assignments = _rows_with_job_numbers(_active_rows(assignments_df))
+    assignments = assignments[assignments["_project_job_number_key"].isin(selected_keys)]
     by_id, by_name = _base_row_indexes(
         employees_df,
         ("Person Number", "Employee Number"),
@@ -283,7 +284,7 @@ def _filter_employee_shift(employees_df: pd.DataFrame, shift: str | None) -> pd.
 def resolve_clients_for_jobs(
     clients_df: pd.DataFrame,
     assignments_df: pd.DataFrame,
-    job_keys: Iterable[str],
+    job_numbers: Iterable[str],
     shift: str | None = None,
 ) -> pd.DataFrame:
     """Resolve active client rows with project-specific certification and shift."""
@@ -293,16 +294,15 @@ def resolve_clients_for_jobs(
     assignment_company_column = find_column(assignments_df, company_candidates)
     assignment_name_column = find_column(assignments_df, name_candidates)
     assignment_job_column = find_column(assignments_df, JOB_NUMBER_COLUMNS)
-    assignment_area_column = find_column(assignments_df, JOB_AREA_COLUMNS)
-    if assignment_job_column is None or assignment_area_column is None:
+    if assignment_job_column is None:
         return active_clients.iloc[0:0].copy()
 
-    selected_keys = {str(key) for key in job_keys if key}
+    selected_keys = {build_job_number_key(job_number) for job_number in job_numbers if job_number}
     if not selected_keys:
         return active_clients.iloc[0:0].copy()
 
-    assignments = _rows_with_job_keys(_active_rows(assignments_df))
-    assignments = assignments[assignments["_project_job_key"].isin(selected_keys)]
+    assignments = _rows_with_job_numbers(_active_rows(assignments_df))
+    assignments = assignments[assignments["_project_job_number_key"].isin(selected_keys)]
     base_company_column = find_column(active_clients, company_candidates)
     base_name_column = find_column(active_clients, name_candidates)
     base_rows = {}

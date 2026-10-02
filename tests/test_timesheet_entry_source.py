@@ -26,6 +26,8 @@ def test_timesheet_entry_uses_project_assignments_for_jobs_employees_and_sign_in
 
     assert "filter_jobs_for_user(_project_jobs_df, _user_job_assignments_df, user)" in source
     assert '"Jobs to include"' in source
+    assert "sign_in_job_options = build_job_number_options(_accessible_jobs_df)" in source
+    assert "options=sign_in_job_options" in source
     assert "disabled=not sign_in_job_choices" in source
     assert "resolve_employees_for_jobs(" in source
     assert "resolve_clients_for_jobs(" in source
