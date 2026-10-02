@@ -555,12 +555,7 @@ def _get_employee_list_value(emp_row, candidates, fallback_index: Optional[int] 
                     return cleaned_value
     except Exception:
         pass
-    if fallback_index is not None:
-        try:
-            if len(emp_row.index) > fallback_index:
-                return _clean_text_value(emp_row.iloc[fallback_index])
-        except Exception:
-            pass
+    # Assignment columns are identified by headers; blanks must stay blank.
     return ""
 
 def _normalize_employee_key(name) -> str:
@@ -1412,14 +1407,6 @@ if user_type.upper() == "ADMIN":
                     truck_value = _clean_truck_value(value)
                     if truck_value:
                         return truck_value
-                try:
-                    if len(emp_row.index) >= 6:
-                        value = emp_row.iloc[5]
-                        truck_value = _clean_truck_value(value)
-                        if truck_value:
-                            return truck_value
-                except Exception:
-                    pass
                 return ""
 
             def _get_employee_post_to_payroll(emp_row):
@@ -1434,11 +1421,6 @@ if user_type.upper() == "ADMIN":
                     cleaned_value = _clean_text_value(value)
                     if cleaned_value:
                         return cleaned_value
-                try:
-                    if len(emp_row.index) >= 7:
-                        return _clean_text_value(emp_row.iloc[6])
-                except Exception:
-                    pass
                 return ""
 
             def _get_employee_night_shift(emp_row):
@@ -1453,11 +1435,6 @@ if user_type.upper() == "ADMIN":
                     cleaned_value = _clean_text_value(value)
                     if cleaned_value:
                         return cleaned_value
-                try:
-                    if len(emp_row.index) >= 8:
-                        return _clean_text_value(emp_row.iloc[7])
-                except Exception:
-                    pass
                 return ""
 
             def _has_daily_import_column(employee_df):

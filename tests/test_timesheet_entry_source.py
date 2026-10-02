@@ -1,4 +1,39 @@
 from pathlib import Path
+import ast
+from typing import Optional
+
+import pandas as pd
+
+
+def test_assignment_blank_fields_do_not_read_adjacent_columns():
+    source_path = Path(__file__).resolve().parents[1] / "pages" / "10_Timesheet_Entry.py"
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    names = {
+        "_clean_text_value", "_get_employee_list_value", "_get_employee_truck",
+        "_get_employee_post_to_payroll", "_get_employee_night_shift",
+    }
+    definitions = [node for node in ast.walk(tree)
+                   if isinstance(node, ast.FunctionDef) and node.name in names]
+    namespace = {"pd": pd, "Optional": Optional}
+    exec(compile(ast.Module(body=definitions, type_ignores=[]), str(source_path), "exec"), namespace)
+    employee = pd.Series({
+        "Person Number": "70299I", "Employee Name": "ELBERT WIEBE",
+        "Job Number": "2624138043", "Time Record Type": "EMPL",
+        "Indirect / Direct": "Direct", "Override Trade Class": "EJ2",
+        "Truck": "", "Post To Payroll": "Y", "Night Shift": "",
+        "Premium Rate": "", "Subsistence Rate": "", "Travel Rate": "",
+    })
+    assert namespace["_get_employee_night_shift"](employee) == ""
+    assert namespace["_get_employee_truck"](employee) == ""
+    assert namespace["_get_employee_post_to_payroll"](employee) == "Y"
+    for header, old_position in (("Premium Rate", 8), ("Subsistence Rate", 9), ("Travel Rate", 10)):
+        assert namespace["_get_employee_list_value"](employee, [header], old_position) == ""
+    employee["Night Shift"] = "Y"
+    assert namespace["_get_employee_night_shift"](employee) == "Y"
+    employee["Post To Payroll"] = ""
+    employee["Truck"] = "12345"
+    assert namespace["_get_employee_post_to_payroll"](employee) == ""
+    assert namespace["_get_employee_truck"](employee) == "12345"
 
 
 def test_subsistence_daily_import_rows_use_subs_time_record_type():
