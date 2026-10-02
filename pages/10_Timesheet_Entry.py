@@ -15,6 +15,7 @@ from app.data.time_data import (
     normalize_sheet_value,
     prepare_time_data_dataframe,
 )
+from app.exports.browser_download import build_auto_download_html
 from app.exports.google_templates import (
     build_pdf_image_print_html,
     build_sign_in_sheet_pdf,
@@ -2110,14 +2111,20 @@ if user_type.upper() == "ADMIN":
                         st.session_state.session_time_data = time_data_for_export.copy()
                     zip_data = create_template_exports(date_val)
                     if zip_data:
-                        st.download_button(
-                            label="Download Export Package",
-                            data=zip_data,
-                            file_name=f"Timesheet_Export_{date_val.strftime('%m-%d-%Y')}.zip",
-                            mime="application/zip",
-                            key="download_exports"
+                        export_file_name = f"Timesheet_Export_{date_val.strftime('%m-%d-%Y')}.zip"
+                        components.html(
+                            build_auto_download_html(
+                                zip_data,
+                                export_file_name,
+                                "application/zip",
+                            ),
+                            height=0,
+                            scrolling=False,
                         )
-                        st.success(f"Export package ready for download! Contains Daily Time and Daily Import files for {date_val}")
+                        st.success(
+                            f"Export package created and download started! "
+                            f"Contains Daily Time and Daily Import files for {date_val}"
+                        )
                     else:
                         st.error("Failed to create export package")
 
