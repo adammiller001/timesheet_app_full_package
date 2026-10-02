@@ -32,11 +32,8 @@ ROLE_COLUMN_CANDIDATES = ["User Type", "UserType", "Role", "Access Level", "Type
 ACTIVE_COLUMN_CANDIDATES = ["Active", "Is Active", "Enabled"]
 
 CORE_SHEETS = [
-    ("Users", ("Users", "User")),
     ("User Job Assignments", ("User Job Assignments", "User Jobs")),
-    ("Employee List", ("Employee List", "Employees")),
     ("Employee Job Assignments", ("Employee Job Assignments", "Employee Jobs")),
-    ("Client Names", ("Client Names", "Clients", "Client List")),
     ("Client Job Assignments", ("Client Job Assignments", "Client Jobs")),
     ("Job Numbers", ("Job Numbers", "Jobs")),
     ("Cost Codes", ("Cost Codes", "CostCodes")),
@@ -207,7 +204,10 @@ def _current_user_is_sheet_admin() -> tuple[bool, Optional[str]]:
     if not email:
         return False, "No signed-in user email is available."
 
-    users_df, actual_title, error = _read_sheet(("Users", "User"), force_refresh=False)
+    users_df, actual_title, error = _read_sheet(
+        ("User Job Assignments", "User Jobs"),
+        force_refresh=False,
+    )
     if error:
         return False, error
     if users_df.empty:
@@ -217,26 +217,27 @@ def _current_user_is_sheet_admin() -> tuple[bool, Optional[str]]:
     if email_col is None and len(users_df.columns) > 0:
         email_col = users_df.columns[0]
     if email_col is None:
-        return False, "Could not identify the email column in Users."
+        return False, "Could not identify the email column in User Job Assignments."
 
     matches = users_df[users_df[email_col].astype(str).str.strip().str.lower() == email]
     if matches.empty:
-        return False, "Your email was not found in the Users worksheet."
+        return False, "Your email was not found in User Job Assignments."
 
     active_col = _find_column(users_df.columns, ACTIVE_COLUMN_CANDIDATES)
     if active_col and active_col in users_df.columns:
-        if not _is_truthy(matches.iloc[0].get(active_col)):
-            return False, "Your user row is not marked active."
+        matches = matches[matches[active_col].apply(_is_truthy)]
+        if matches.empty:
+            return False, "You do not have an active user job assignment."
 
     role_col = _find_column(users_df.columns, ROLE_COLUMN_CANDIDATES)
     if role_col is None and len(users_df.columns) >= 4:
         role_col = users_df.columns[3]
     if role_col is None:
-        return False, "Could not identify the role column in Users."
+        return False, "Could not identify the role column in User Job Assignments."
 
-    role_value = str(matches.iloc[0].get(role_col, "")).strip()
-    if "admin" not in role_value.lower():
-        return False, "Your Users row does not have Admin in the role column."
+    is_admin = matches[role_col].astype(str).str.contains("admin", case=False, na=False).any()
+    if not is_admin:
+        return False, "Your user job assignment does not have Admin in the role column."
     return True, None
 
 

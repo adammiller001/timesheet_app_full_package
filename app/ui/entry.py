@@ -4,6 +4,7 @@ import streamlit as st
 from app.data.workbook import (
     get_employees, get_jobs, get_cost_codes, append_time_row, only_active_cost_codes, pad_job_area
 )
+from app.features.project_assignments import resolve_employees_for_jobs
 
 def entry_form():
     xlsx_path = st.session_state.xlsx_path
@@ -13,11 +14,15 @@ def entry_form():
 
     date_val = st.date_input("Date", dt.date.today())
 
-    emp_opts = employees["name"].tolist()
-    sel_emps = st.multiselect("Employees", emp_opts)
-
     job_opts = jobs["job_num"].unique().tolist()
     sel_job  = st.selectbox("Job Number", [""] + job_opts)
+
+    project_employees = resolve_employees_for_jobs(
+        employees,
+        [sel_job] if sel_job else [],
+    )
+    emp_opts = sorted(project_employees.get("name", pd.Series(dtype=str)).dropna().astype(str).unique().tolist())
+    sel_emps = st.multiselect("Employees", emp_opts, disabled=not sel_job)
 
     # Areas bound to job
     areas = jobs[jobs["job_num"].astype(str) == str(sel_job)][["area_code","area_desc"]].copy() if sel_job else pd.DataFrame(columns=["area_code","area_desc"])

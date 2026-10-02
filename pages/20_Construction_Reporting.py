@@ -84,7 +84,7 @@ def _get_user_directory() -> dict[str, str]:
 
     mapping: dict[str, str] = {}
     try:
-        users_df = read_timesheet_data("Users", force_refresh=True)
+        users_df = read_timesheet_data("User Job Assignments", force_refresh=True)
     except Exception:
         users_df = pd.DataFrame()
 

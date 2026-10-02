@@ -102,14 +102,16 @@ separate user, employee, or client assignments.
 
 Three worksheets control project access and project-specific values:
 
-- `User Job Assignments`: one row per user and Job Number. An active assignment makes all
-  active Job Areas under that Job Number available in Timesheet Entry.
+- `User Job Assignments`: one row per user and Job Number. It stores the user's email,
+  name, PIN, role, remembered-device tokens, project access, and active status. An active
+  assignment makes all active Job Areas under that Job Number available in Timesheet Entry.
 - `Employee Job Assignments`: one row per employee and Job Number. This controls whether
-  the employee appears for that job and can override time record type, trade class, truck,
+  the employee appears for that job and stores time record type, trade class, truck,
   payroll flags, shift, rates, company, craft/certification, and Daily Import eligibility
   for that assignment.
 - `Client Job Assignments`: one row per client and Job Number. This controls sign-in-sheet
-  inclusion, certification, and day/night shift for that assignment.
+  inclusion and stores company, certification, day/night shift, and active status for that
+  assignment.
 
 To add a new project:
 
@@ -118,9 +120,9 @@ To add a new project:
 3. Add the applicable employees to `Employee Job Assignments`.
 4. Add the applicable clients to `Client Job Assignments`.
 
-The base `Users`, `Employee List`, and `Client Names` rows must also remain active. The
-assignment worksheets can be maintained from **Admin > Core Data**, including adding and
-removing rows.
+These three assignment worksheets are authoritative. There are no separate user, employee,
+or client directory worksheets to maintain. They can be edited from **Admin > Core Data**,
+including adding and removing rows.
 
 ## Benefits
 

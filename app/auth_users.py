@@ -29,6 +29,7 @@ ACTIVE_COLUMN_CANDIDATES = ["Active", "Is Active", "Enabled", "Status"]
 PIN_COLUMN_CANDIDATES = ["User's Pin", "Users Pin", "User Pin", "PIN", "Pin"]
 REMEMBER_TOKEN_COLUMN = "Remember Token"
 REMEMBER_TOKEN_CANDIDATES = [REMEMBER_TOKEN_COLUMN, "Login Token", "Device Token"]
+USER_ASSIGNMENT_SHEET_NAMES = ["User Job Assignments", "User Jobs"]
 
 
 @dataclass
@@ -95,18 +96,19 @@ def _sheet_id() -> str:
 
 
 def _get_users_sheet(force_refresh=False) -> tuple[pd.DataFrame, str, Optional[str]]:
+    """Load the authoritative user assignment worksheet."""
     sheet_id = _sheet_id()
     if not (HAVE_GOOGLE_SHEETS and get_sheets_manager and sheet_id):
         return pd.DataFrame(), "", "Google Sheets integration is not configured."
 
     manager = get_sheets_manager()
     if force_refresh and hasattr(manager, "_data_cache"):
-        manager._data_cache.pop("Users", None)  # type: ignore[attr-defined]
-        manager._data_cache.pop("User", None)  # type: ignore[attr-defined]
+        for sheet_name in USER_ASSIGNMENT_SHEET_NAMES:
+            manager._data_cache.pop(sheet_name, None)  # type: ignore[attr-defined]
 
-    worksheet, actual_title = manager.find_worksheet(["Users", "User"], sheet_id)
+    worksheet, actual_title = manager.find_worksheet(USER_ASSIGNMENT_SHEET_NAMES, sheet_id)
     if not actual_title:
-        return pd.DataFrame(), "", "Users worksheet not found in Google Sheets."
+        return pd.DataFrame(), "", "User Job Assignments worksheet not found in Google Sheets."
 
     try:
         df = manager.read_worksheet(actual_title, sheet_id, force_refresh=force_refresh)
@@ -122,6 +124,7 @@ def _get_users_sheet(force_refresh=False) -> tuple[pd.DataFrame, str, Optional[s
 
 
 def _write_users_sheet(df: pd.DataFrame, actual_title: str) -> bool:
+    """Write all user assignment rows, including synchronized auth fields."""
     sheet_id = _sheet_id()
     if not (HAVE_GOOGLE_SHEETS and get_sheets_manager and sheet_id):
         st.error("Google Sheets integration is not configured.")
@@ -130,8 +133,8 @@ def _write_users_sheet(df: pd.DataFrame, actual_title: str) -> bool:
     ok = bool(manager.write_worksheet(actual_title, df, sheet_id, value_input_option="RAW"))
     if ok and hasattr(manager, "_data_cache"):
         manager._data_cache.pop(actual_title, None)  # type: ignore[attr-defined]
-        manager._data_cache.pop("Users", None)  # type: ignore[attr-defined]
-        manager._data_cache.pop("User", None)  # type: ignore[attr-defined]
+        for sheet_name in USER_ASSIGNMENT_SHEET_NAMES:
+            manager._data_cache.pop(sheet_name, None)  # type: ignore[attr-defined]
     return ok
 
 
@@ -143,13 +146,32 @@ def _active_users(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _find_user_row(df: pd.DataFrame, email: str):
+    indexes, email_col, error = _find_user_rows(df, email)
+    return (indexes[0] if indexes else None), email_col, error
+
+
+def _find_user_rows(df: pd.DataFrame, email: str, active_only: bool = False):
     email_col = _find_column(df.columns, EMAIL_COLUMN_CANDIDATES)
     if not email_col:
-        return None, None, f"Email column not found. Available columns: {list(df.columns)}"
+        return [], None, f"Email column not found. Available columns: {list(df.columns)}"
     matches = df[df[email_col].astype(str).str.strip().str.lower() == str(email).strip().lower()]
+    if active_only:
+        active_col = _find_column(df.columns, ACTIVE_COLUMN_CANDIDATES)
+        if active_col and active_col in df.columns:
+            matches = matches[matches[active_col].apply(_is_truthy)]
     if matches.empty:
-        return None, email_col, "Email not found in users list"
-    return matches.index[0], email_col, None
+        return [], email_col, "Email not found in active user job assignments" if active_only else "Email not found in users list"
+    return list(matches.index), email_col, None
+
+
+def _first_nonblank(df: pd.DataFrame, row_indexes, column: Optional[str]) -> str:
+    if not column or column not in df.columns:
+        return ""
+    for row_index in row_indexes:
+        value = _clean(df.at[row_index, column])
+        if value:
+            return value
+    return ""
 
 
 def _get_user_type(df: pd.DataFrame, row_index) -> str:
@@ -166,31 +188,34 @@ def _get_user_type(df: pd.DataFrame, row_index) -> str:
     return user_type_clean or "User"
 
 
-def _validate_user_base(email: str, force_refresh=False) -> tuple[pd.DataFrame, str, object, Optional[str], str]:
+def _get_user_type_for_rows(df: pd.DataFrame, row_indexes) -> str:
+    user_types = [_get_user_type(df, row_index) for row_index in row_indexes]
+    if any(user_type.upper() == "ADMIN" for user_type in user_types):
+        return "Admin"
+    return next((user_type for user_type in user_types if user_type), "User")
+
+
+def _validate_user_base(email: str, force_refresh=False) -> tuple[pd.DataFrame, str, list, Optional[str], str]:
     df, actual_title, error = _get_users_sheet(force_refresh=force_refresh)
     if error:
-        return df, actual_title, None, error, "User"
+        return df, actual_title, [], error, "User"
 
     active_df = _active_users(df)
     if active_df.empty:
-        return df, actual_title, None, "No active users found in Users worksheet.", "User"
+        return df, actual_title, [], "No active users found in User Job Assignments worksheet.", "User"
 
-    row_index, _, row_error = _find_user_row(active_df, email)
+    row_indexes, _, row_error = _find_user_rows(df, email, active_only=True)
     if row_error:
-        return df, actual_title, None, row_error, "User"
+        return df, actual_title, [], row_error, "User"
 
-    full_row_index, _, full_row_error = _find_user_row(df, email)
-    if full_row_error:
-        return df, actual_title, None, full_row_error, "User"
-
-    return df, actual_title, full_row_index, None, _get_user_type(df, full_row_index)
+    return df, actual_title, row_indexes, None, _get_user_type_for_rows(df, row_indexes)
 
 
 def get_login_status(email: str, force_refresh=False) -> AuthResult:
     if not str(email or "").strip():
         return AuthResult(False, error="Please enter your email address")
 
-    df, _, row_index, error, user_type = _validate_user_base(email, force_refresh=force_refresh)
+    df, _, row_indexes, error, user_type = _validate_user_base(email, force_refresh=force_refresh)
     if error:
         if "not configured" in error.lower():
             return AuthResult(True, "Admin")
@@ -199,18 +224,22 @@ def get_login_status(email: str, force_refresh=False) -> AuthResult:
     pin_col = _find_column(df.columns, PIN_COLUMN_CANDIDATES)
     if not pin_col:
         return AuthResult(True, user_type=user_type, needs_pin_setup=True)
-    return AuthResult(True, user_type=user_type, needs_pin_setup=not bool(_clean(df.at[row_index, pin_col])))
+    return AuthResult(
+        True,
+        user_type=user_type,
+        needs_pin_setup=not bool(_first_nonblank(df, row_indexes, pin_col)),
+    )
 
 
 def authenticate_user(email: str, pin: str, force_refresh=False) -> AuthResult:
-    df, _, row_index, error, user_type = _validate_user_base(email, force_refresh=force_refresh)
+    df, _, row_indexes, error, user_type = _validate_user_base(email, force_refresh=force_refresh)
     if error:
         if "not configured" in error.lower():
             return AuthResult(True, "Admin")
         return AuthResult(False, error=error)
 
     pin_col = _find_column(df.columns, PIN_COLUMN_CANDIDATES)
-    saved_pin = _clean(df.at[row_index, pin_col]) if pin_col else ""
+    saved_pin = _first_nonblank(df, row_indexes, pin_col)
     if not saved_pin:
         return AuthResult(False, user_type=user_type, needs_pin_setup=True)
     if not _pin_is_valid(str(pin)):
@@ -226,7 +255,7 @@ def create_user_pin(email: str, pin: str, confirm_pin: str, force_refresh=True) 
     if str(pin) != str(confirm_pin):
         return AuthResult(False, error="PIN entries do not match.")
 
-    df, actual_title, row_index, error, user_type = _validate_user_base(email, force_refresh=force_refresh)
+    df, actual_title, row_indexes, error, user_type = _validate_user_base(email, force_refresh=force_refresh)
     if error:
         return AuthResult(False, error=error)
 
@@ -235,17 +264,19 @@ def create_user_pin(email: str, pin: str, confirm_pin: str, force_refresh=True) 
         pin_col = "User's Pin"
         df[pin_col] = ""
 
-    if _clean(df.at[row_index, pin_col]):
+    all_row_indexes, _, _ = _find_user_rows(df, email)
+    if _first_nonblank(df, all_row_indexes, pin_col):
         return AuthResult(False, user_type=user_type, error="A PIN already exists for this user. Please sign in with that PIN.")
 
-    df.at[row_index, pin_col] = str(pin)
+    for row_index in all_row_indexes or row_indexes:
+        df.at[row_index, pin_col] = str(pin)
     if not _write_users_sheet(df, actual_title):
-        return AuthResult(False, user_type=user_type, error="Could not save PIN to the Users worksheet.")
+        return AuthResult(False, user_type=user_type, error="Could not save PIN to User Job Assignments.")
     return AuthResult(True, user_type=user_type)
 
 
 def add_remember_token(email: str, force_refresh=True) -> Optional[str]:
-    df, actual_title, row_index, error, _ = _validate_user_base(email, force_refresh=force_refresh)
+    df, actual_title, row_indexes, error, _ = _validate_user_base(email, force_refresh=force_refresh)
     if error:
         return None
 
@@ -255,9 +286,16 @@ def add_remember_token(email: str, force_refresh=True) -> Optional[str]:
         df[token_col] = ""
 
     token = secrets.token_urlsafe(24)
-    existing = [item for item in _clean(df.at[row_index, token_col]).split("|") if item]
+    all_row_indexes, _, _ = _find_user_rows(df, email)
+    existing = []
+    for row_index in all_row_indexes or row_indexes:
+        for item in _clean(df.at[row_index, token_col]).split("|"):
+            if item and item not in existing:
+                existing.append(item)
     existing.append(token)
-    df.at[row_index, token_col] = "|".join(existing[-5:])
+    token_value = "|".join(existing[-5:])
+    for row_index in all_row_indexes or row_indexes:
+        df.at[row_index, token_col] = token_value
     if not _write_users_sheet(df, actual_title):
         return None
     return token
@@ -267,14 +305,19 @@ def authenticate_remembered_device(email: str, token: str, force_refresh=False) 
     if not _clean(email) or not _clean(token):
         return AuthResult(False)
 
-    df, _, row_index, error, user_type = _validate_user_base(email, force_refresh=force_refresh)
+    df, _, row_indexes, error, user_type = _validate_user_base(email, force_refresh=force_refresh)
     if error:
         return AuthResult(False, error=error)
 
     token_col = _find_column(df.columns, REMEMBER_TOKEN_CANDIDATES)
     if not token_col:
         return AuthResult(False)
-    tokens = [item for item in _clean(df.at[row_index, token_col]).split("|") if item]
+    tokens = {
+        item
+        for row_index in row_indexes
+        for item in _clean(df.at[row_index, token_col]).split("|")
+        if item
+    }
     if token not in tokens:
         return AuthResult(False)
     return AuthResult(True, user_type=user_type)

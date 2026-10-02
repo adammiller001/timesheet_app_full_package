@@ -4,6 +4,7 @@ from datetime import date
 from copy import copy
 from app.data.workbook import get_employees, get_time_data, pad_job_area
 from app.exports.google_templates import get_google_template_workbook_bytes, load_template_sheet_workbook
+from app.features.project_assignments import build_job_number_key
 from app.utils.excel_style import clone_row_styles
 
 EXPECTED_HEADERS = ['Date','Time Record Type','Person Number','Employee Name','Override Trade Class','Post To Payroll','Cost Code / Phase','JobArea','Scope Change','Pay Code','Hours','Night Shift','Premium Rate / Subsistence Rate / Travel Rate','Comments']
@@ -39,7 +40,7 @@ def _find_column(df: pd.DataFrame, candidates: tuple[str, ...] | list[str]):
 
 
 def filter_daily_import_rows(day_df: pd.DataFrame, employees_df: pd.DataFrame) -> pd.DataFrame:
-    """Keep only Time Data rows whose employee is marked for Daily Import."""
+    """Keep rows whose matching project assignment is marked for Daily Import."""
     if day_df is None or day_df.empty or employees_df is None or employees_df.empty:
         return day_df
 
@@ -58,15 +59,40 @@ def filter_daily_import_rows(day_df: pd.DataFrame, employees_df: pd.DataFrame) -
     if not name_col:
         return day_df.iloc[0:0].copy()
 
-    included_names = {
-        _normalize_employee_key(row.get(name_col, ""))
-        for _, row in employees.iterrows()
-        if _is_truthy_flag(row.get(daily_import_col, ""))
-    }
-    if not included_names or "Name" not in day_df.columns:
+    active_col = _find_column(employees, ("Active", "Is Active", "Enabled"))
+    job_col = _find_column(employees, ("Job Number", "JOB #", "Job #", "Job"))
+    if "Name" not in day_df.columns:
         return day_df.iloc[0:0].copy()
 
-    return day_df[day_df["Name"].apply(lambda value: _normalize_employee_key(value) in included_names)].copy()
+    included_keys = set()
+    included_names = set()
+    for _, row in employees.iterrows():
+        if active_col and not _is_truthy_flag(row.get(active_col, "")):
+            continue
+        if not _is_truthy_flag(row.get(daily_import_col, "")):
+            continue
+        name_key = _normalize_employee_key(row.get(name_col, ""))
+        if not name_key:
+            continue
+        included_names.add(name_key)
+        if job_col:
+            job_key = build_job_number_key(row.get(job_col, ""))
+            if job_key:
+                included_keys.add((name_key, job_key))
+
+    if job_col and "Job Number" in day_df.columns:
+        mask = day_df.apply(
+            lambda row: (
+                _normalize_employee_key(row.get("Name", "")),
+                build_job_number_key(row.get("Job Number", "")),
+            ) in included_keys,
+            axis=1,
+        )
+    else:
+        mask = day_df["Name"].apply(
+            lambda value: _normalize_employee_key(value) in included_names
+        )
+    return day_df[mask].copy()
 
 
 def _clean_rate_value(value) -> str:

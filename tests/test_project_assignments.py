@@ -47,14 +47,7 @@ def test_missing_user_assignment_sheet_exposes_no_jobs():
     assert allowed.empty
 
 
-def test_employee_assignment_values_override_global_values_including_blanks():
-    employees = pd.DataFrame(
-        [["EMPL", "10", "ALEX", "EA2", "Y", "99", "PTW", "Electrician", "TRUE"]],
-        columns=[
-            "Time Record Type", "Person Number", "Employee Name", "Override Trade Class",
-            "Night Shift", "Subsistence Rate", "Company", "Craft / Certification", "Active",
-        ],
-    )
+def test_employee_assignment_is_the_complete_project_record():
     assignments = pd.DataFrame(
         [["SUBS", "10", "ALEX", "100", "EJ3", "", "225", "PARTNER", "Lead", "TRUE"]],
         columns=[
@@ -65,7 +58,6 @@ def test_employee_assignment_values_override_global_values_including_blanks():
     )
 
     resolved = resolve_employees_for_jobs(
-        employees,
         assignments,
         [build_job_number_key("100")],
         shift="day",
@@ -81,10 +73,6 @@ def test_employee_assignment_values_override_global_values_including_blanks():
 
 
 def test_employee_sign_in_union_deduplicates_after_shift_filter():
-    employees = pd.DataFrame(
-        [["10", "ALEX", "TRUE"], ["20", "BLAIR", "TRUE"]],
-        columns=["Person Number", "Employee Name", "Active"],
-    )
     assignments = pd.DataFrame(
         [
             ["10", "ALEX", "100", "", "TRUE"],
@@ -95,31 +83,26 @@ def test_employee_sign_in_union_deduplicates_after_shift_filter():
     )
     job_numbers = [build_job_number_key("100"), build_job_number_key("200")]
 
-    day_rows = resolve_employees_for_jobs(employees, assignments, job_numbers, shift="day")
-    night_rows = resolve_employees_for_jobs(employees, assignments, job_numbers, shift="night")
+    day_rows = resolve_employees_for_jobs(assignments, job_numbers, shift="day")
+    night_rows = resolve_employees_for_jobs(assignments, job_numbers, shift="night")
 
     assert day_rows["Employee Name"].tolist() == ["ALEX"]
     assert night_rows["Employee Name"].tolist() == ["ALEX", "BLAIR"]
 
 
 def test_client_assignment_shift_is_project_specific():
-    clients = pd.DataFrame(
-        [["OWNER", "SAM", "Inspector", "Day", "TRUE"]],
-        columns=["COMPANY", "PERSON NAME", "CERTIFICATION", "SHIFT", "Active"],
-    )
     assignments = pd.DataFrame(
         [["NEW OWNER", "SAM", "100", "Lead", "Night", "TRUE"]],
         columns=["Company", "Person Name", "Job Number", "Certification", "Shift", "Active"],
     )
 
     resolved = resolve_clients_for_jobs(
-        clients,
         assignments,
         [build_job_number_key("100")],
         shift="night",
     )
 
-    assert resolved["PERSON NAME"].tolist() == ["SAM"]
-    assert resolved.loc[0, "COMPANY"] == "NEW OWNER"
-    assert resolved.loc[0, "CERTIFICATION"] == "Lead"
-    assert resolved.loc[0, "SHIFT"] == "Night"
+    assert resolved["Person Name"].tolist() == ["SAM"]
+    assert resolved.loc[0, "Company"] == "NEW OWNER"
+    assert resolved.loc[0, "Certification"] == "Lead"
+    assert resolved.loc[0, "Shift"] == "Night"

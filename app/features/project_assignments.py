@@ -157,100 +157,27 @@ def build_job_number_options(jobs_df: pd.DataFrame) -> list[str]:
     return sorted(dict.fromkeys(options))
 
 
-def _base_row_indexes(
-    base_df: pd.DataFrame,
-    id_candidates: Iterable[str],
-    name_candidates: Iterable[str],
-) -> tuple[dict[str, dict], dict[str, dict]]:
-    id_column = find_column(base_df, id_candidates)
-    name_column = find_column(base_df, name_candidates)
-    by_id: dict[str, dict] = {}
-    by_name: dict[str, dict] = {}
-    for _, row in _active_rows(base_df).iterrows():
-        row_dict = row.to_dict()
-        identifier = _canonical_identifier(row.get(id_column, "")) if id_column else ""
-        name = _canonical_identifier(row.get(name_column, "")) if name_column else ""
-        if identifier:
-            by_id[identifier] = row_dict
-        if name:
-            by_name[name] = row_dict
-    return by_id, by_name
-
-
-def _set_from_assignment(
-    resolved: dict,
-    base_df: pd.DataFrame,
-    assignment_row: pd.Series,
-    assignment_df: pd.DataFrame,
-    target_candidates: Iterable[str],
-    source_candidates: Iterable[str] | None = None,
-) -> None:
-    source_column = find_column(assignment_df, source_candidates or target_candidates)
-    if source_column is None:
-        return
-    target_column = find_column(base_df, target_candidates) or next(iter(target_candidates))
-    resolved[target_column] = assignment_row.get(source_column, "")
-
-
 def resolve_employees_for_jobs(
-    employees_df: pd.DataFrame,
     assignments_df: pd.DataFrame,
     job_numbers: Iterable[str],
     shift: str | None = None,
 ) -> pd.DataFrame:
-    """Resolve active employee rows with project-specific assignment values."""
-    active_employees = _active_rows(employees_df)
-    assignment_id_column = find_column(assignments_df, ("Person Number", "Employee Number"))
-    assignment_name_column = find_column(assignments_df, ("Employee Name", "Name", "Employee"))
-    assignment_job_column = find_column(assignments_df, JOB_NUMBER_COLUMNS)
+    """Return active, project-specific employee assignment rows."""
+    if not isinstance(assignments_df, pd.DataFrame):
+        return pd.DataFrame()
 
+    assignment_job_column = find_column(assignments_df, JOB_NUMBER_COLUMNS)
     if assignment_job_column is None:
-        return active_employees.iloc[0:0].copy()
+        return assignments_df.iloc[0:0].copy()
 
     selected_keys = {build_job_number_key(job_number) for job_number in job_numbers if job_number}
     if not selected_keys:
-        return active_employees.iloc[0:0].copy()
+        return assignments_df.iloc[0:0].copy()
 
     assignments = _rows_with_job_numbers(_active_rows(assignments_df))
     assignments = assignments[assignments["_project_job_number_key"].isin(selected_keys)]
-    by_id, by_name = _base_row_indexes(
-        employees_df,
-        ("Person Number", "Employee Number"),
-        ("Employee Name", "Name", "Employee"),
-    )
-
-    resolved_rows: list[dict] = []
-    for _, assignment in assignments.iterrows():
-        identifier = _canonical_identifier(assignment.get(assignment_id_column, "")) if assignment_id_column else ""
-        name = _canonical_identifier(assignment.get(assignment_name_column, "")) if assignment_name_column else ""
-        base_row = by_id.get(identifier) if identifier else None
-        if base_row is None and name:
-            base_row = by_name.get(name)
-        if base_row is None:
-            continue
-
-        resolved = dict(base_row)
-        for candidates in (
-            ("Time Record Type", "Record Type"),
-            ("Indirect / Direct", "Indirect Direct"),
-            ("Override Trade Class", "Trade Class"),
-            ("Truck", "Truck Number", "Unit"),
-            ("Post To Payroll", "Post to Payroll"),
-            ("Night Shift", "NightShift", "Night"),
-            ("Premium Rate", "Premium"),
-            ("Subsistence Rate", "Subsistence"),
-            ("Travel Rate", "Travel"),
-            ("Company", "Company Name", "Employer"),
-            ("Craft / Certification", "Craft Certification", "Craft", "Certification"),
-            ("Daily Import", "Include Daily Import"),
-        ):
-            _set_from_assignment(resolved, employees_df, assignment, assignments_df, candidates)
-        resolved_rows.append(resolved)
-
-    if not resolved_rows:
-        return active_employees.iloc[0:0].copy()
-    resolved_df = pd.DataFrame(resolved_rows)
-    return _filter_employee_shift(resolved_df, shift)
+    assignments = assignments.drop(columns=["_project_job_number_key"], errors="ignore")
+    return _filter_employee_shift(assignments, shift)
 
 
 def _filter_employee_shift(employees_df: pd.DataFrame, shift: str | None) -> pd.DataFrame:
@@ -282,84 +209,26 @@ def _filter_employee_shift(employees_df: pd.DataFrame, shift: str | None) -> pd.
 
 
 def resolve_clients_for_jobs(
-    clients_df: pd.DataFrame,
     assignments_df: pd.DataFrame,
     job_numbers: Iterable[str],
     shift: str | None = None,
 ) -> pd.DataFrame:
-    """Resolve active client rows with project-specific certification and shift."""
-    active_clients = _active_rows(clients_df)
-    company_candidates = ("COMPANY", "Company", "Company Name", "Client Company")
-    name_candidates = ("PERSON NAME", "Person Name", "Client Name", "Name")
-    assignment_company_column = find_column(assignments_df, company_candidates)
-    assignment_name_column = find_column(assignments_df, name_candidates)
+    """Return active, project-specific client assignment rows."""
+    if not isinstance(assignments_df, pd.DataFrame):
+        return pd.DataFrame()
+
     assignment_job_column = find_column(assignments_df, JOB_NUMBER_COLUMNS)
     if assignment_job_column is None:
-        return active_clients.iloc[0:0].copy()
+        return assignments_df.iloc[0:0].copy()
 
     selected_keys = {build_job_number_key(job_number) for job_number in job_numbers if job_number}
     if not selected_keys:
-        return active_clients.iloc[0:0].copy()
+        return assignments_df.iloc[0:0].copy()
 
     assignments = _rows_with_job_numbers(_active_rows(assignments_df))
     assignments = assignments[assignments["_project_job_number_key"].isin(selected_keys)]
-    base_company_column = find_column(active_clients, company_candidates)
-    base_name_column = find_column(active_clients, name_candidates)
-    base_rows = {}
-    base_rows_by_name: dict[str, list[dict]] = {}
-    for _, row in active_clients.iterrows():
-        normalized_name = (
-            _canonical_identifier(row.get(base_name_column, "")) if base_name_column else ""
-        )
-        key = (
-            _canonical_identifier(row.get(base_company_column, "")) if base_company_column else "",
-            normalized_name,
-        )
-        if any(key):
-            row_dict = row.to_dict()
-            base_rows[key] = row_dict
-            if normalized_name:
-                base_rows_by_name.setdefault(normalized_name, []).append(row_dict)
-
-    resolved_rows: list[dict] = []
-    for _, assignment in assignments.iterrows():
-        key = (
-            _canonical_identifier(assignment.get(assignment_company_column, "")) if assignment_company_column else "",
-            _canonical_identifier(assignment.get(assignment_name_column, "")) if assignment_name_column else "",
-        )
-        base_row = base_rows.get(key)
-        if base_row is None and key[1] and len(base_rows_by_name.get(key[1], [])) == 1:
-            base_row = base_rows_by_name[key[1]][0]
-        if base_row is None:
-            continue
-        resolved = dict(base_row)
-        _set_from_assignment(
-            resolved,
-            clients_df,
-            assignment,
-            assignments_df,
-            company_candidates,
-        )
-        _set_from_assignment(
-            resolved,
-            clients_df,
-            assignment,
-            assignments_df,
-            ("CERTIFICATION", "Certification", "Craft / Certification"),
-        )
-        _set_from_assignment(
-            resolved,
-            clients_df,
-            assignment,
-            assignments_df,
-            ("SHIFT", "Shift", "Day / Night"),
-        )
-        resolved_rows.append(resolved)
-
-    if not resolved_rows:
-        return active_clients.iloc[0:0].copy()
-    resolved_df = pd.DataFrame(resolved_rows)
-    return _filter_client_shift(resolved_df, shift)
+    assignments = assignments.drop(columns=["_project_job_number_key"], errors="ignore")
+    return _filter_client_shift(assignments, shift)
 
 
 def _filter_client_shift(clients_df: pd.DataFrame, shift: str | None) -> pd.DataFrame:

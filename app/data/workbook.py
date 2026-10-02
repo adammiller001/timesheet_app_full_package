@@ -51,7 +51,10 @@ def _read_sheet(possible_names: List[str], force_refresh: bool = False) -> pd.Da
 
 
 def get_employees(_: str | None = None, force_refresh: bool = False) -> pd.DataFrame:
-    df = _read_sheet(["Employee List", "Employees"], force_refresh=force_refresh)
+    df = _read_sheet(
+        ["Employee Job Assignments", "Employee Jobs"],
+        force_refresh=force_refresh,
+    )
     if not df.empty:
         df = df.rename(columns={
             "Employee Name": "name",

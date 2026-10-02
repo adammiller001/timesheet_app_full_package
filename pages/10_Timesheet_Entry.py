@@ -152,11 +152,11 @@ def _cached_sheet_data(sheet_name: str, cache_token: int, force_refresh: bool):
 
 
 def _resolve_user_type(email: str, fallback: str) -> str:
-    """Lookup user status from Users sheet; fall back gracefully."""
+    """Lookup user status from active project assignments; fall back gracefully."""
     if not email:
         return fallback
     try:
-        users_df = smart_read_data("Users", force_refresh=False)
+        users_df = smart_read_data("User Job Assignments", force_refresh=False)
         if isinstance(users_df, pd.DataFrame) and not users_df.empty:
             users_df = users_df.copy()
             users_df.columns = [str(c).strip() for c in users_df.columns]
@@ -180,10 +180,18 @@ def _resolve_user_type(email: str, fallback: str) -> str:
             if email_col and status_col:
                 normalized_email = str(email).strip().lower()
                 matches = users_df[users_df[email_col].astype(str).str.strip().str.lower() == normalized_email]
+                active_col = next(
+                    (candidate for candidate in ("Active", "Is Active", "Enabled") if candidate in users_df.columns),
+                    None,
+                )
+                if active_col:
+                    matches = matches[matches[active_col].apply(assignment_is_truthy)]
                 if not matches.empty:
-                    value = str(matches.iloc[0][status_col]).strip()
-                    if value:
-                        return value
+                    values = [str(value).strip() for value in matches[status_col].tolist() if str(value).strip()]
+                    if any("ADMIN" in value.upper() for value in values):
+                        return "Admin"
+                    if values:
+                        return values[0]
     except Exception:
         pass
     return fallback
@@ -582,14 +590,11 @@ def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return df
     try:
-        employee_df = smart_read_data("Employee List", force_refresh=False)
-        if not isinstance(employee_df, pd.DataFrame) or employee_df.empty:
-            return df
-        employee_df = employee_df.copy()
-        employee_df.columns = [str(c).strip() for c in employee_df.columns]
         assignments_df = smart_read_data("Employee Job Assignments", force_refresh=False)
-        if not isinstance(assignments_df, pd.DataFrame):
-            assignments_df = pd.DataFrame()
+        if not isinstance(assignments_df, pd.DataFrame) or assignments_df.empty:
+            return df
+        assignments_df = assignments_df.copy()
+        assignments_df.columns = [str(c).strip() for c in assignments_df.columns]
 
         df = df.copy()
         project_lookups: dict[str, dict[str, pd.Series]] = {}
@@ -600,7 +605,6 @@ def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
             job_number_key = build_job_number_key(row.get("Job Number", ""))
             if job_number_key not in project_lookups:
                 project_employees = resolve_employees_for_jobs(
-                    employee_df,
                     assignments_df,
                     [job_number_key] if job_number_key else [],
                 )
@@ -811,26 +815,22 @@ if sign_in_shift:
         with st.spinner(f"Preparing {shift_label.lower()} shift sign in sheets for printing..."):
             try:
                 selected_job_numbers = [build_job_number_key(option) for option in sign_in_job_choices]
-                employee_list = _fetch_sheet_dataframe("Employee List", ("Employees",), force_refresh=True)
                 employee_assignments = _fetch_sheet_dataframe(
                     "Employee Job Assignments",
                     ("Employee Jobs", "Employee Project Assignments"),
                     force_refresh=True,
                 )
-                client_list = _fetch_sheet_dataframe("Client Names", ("Clients", "Client List"), force_refresh=True)
                 client_assignments = _fetch_sheet_dataframe(
                     "Client Job Assignments",
                     ("Client Jobs", "Client Project Assignments"),
                     force_refresh=True,
                 )
                 sign_in_employees = resolve_employees_for_jobs(
-                    employee_list,
                     employee_assignments,
                     selected_job_numbers,
                     shift=sign_in_shift,
                 )
                 sign_in_clients = resolve_clients_for_jobs(
-                    client_list,
                     client_assignments,
                     selected_job_numbers,
                     shift=sign_in_shift,
@@ -873,148 +873,6 @@ if st.session_state.get("force_fresh_data", False):
     st.session_state.force_fresh_data = False
 
 # Status indicators removed - Google Sheets working properly
-
-# Add live data verification - now optional since issues are resolved
-if False:
-    try:
-        st.write("**Testing direct Excel read vs safe_read_excel:**")
-
-        # Try direct pandas read
-        try:
-            direct_read = smart_read_data("Employee List", force_refresh=True)
-            st.write(f"Google read (direct): {len(direct_read)} rows")
-        except Exception as e:
-            st.write(f"Direct read failed: {e}")
-
-        # Try our safe read
-        emp_debug = smart_read_data("Employee List", force_refresh=True)
-        st.write(f"**safe_read_excel: {len(emp_debug)} rows**")
-        st.write("**All columns:**", list(emp_debug.columns))
-
-        # Check if there are any NaN values in Employee Name that might cause issues
-        if "Employee Name" in emp_debug.columns:
-            nan_count = emp_debug["Employee Name"].isna().sum()
-            st.write(f"**NaN values in Employee Name column: {nan_count}**")
-
-            # Show any rows with NaN names
-            nan_rows = emp_debug[emp_debug["Employee Name"].isna()]
-            if not nan_rows.empty:
-                st.write("**Rows with NaN Employee Names:**")
-                st.dataframe(nan_rows)
-
-        # Show all employee names
-        name_col = None
-        for col in ["Employee Name", "Name", "Employee", "Full Name"]:
-            if col in emp_debug.columns:
-                name_col = col
-                break
-
-        if name_col:
-            st.write(f"**All employees in {name_col} column:**")
-            st.write(f"**Expected: 11 employees, Actually loaded: {len(emp_debug)}**")
-
-            # Show all rows with their original Excel row numbers if possible
-            for idx, row in emp_debug.iterrows():
-                name = str(row[name_col])
-                person_num = row.get('Person Number', 'N/A')
-                active_val = row.get('Active', 'N/A')
-                st.write(f"Row {idx+2}: '{name}' (Person: {person_num}, Active: {active_val})")
-
-            # Check specifically for Graham with various spellings
-            graham_variations = ['GRAHAM', 'GRAEME', 'GRAHM', 'ST HILAIRE', 'HILAIRE']
-            for variation in graham_variations:
-                graham_check = emp_debug[emp_debug[name_col].astype(str).str.contains(variation, case=False, na=False)]
-                if not graham_check.empty:
-                    st.success(f"✅ Found '{variation}' in: {graham_check[name_col].iloc[0]}")
-                else:
-                    st.write(f"⚪ No match for '{variation}'")
-
-            # Show the full dataframe for inspection
-            st.write("**Full Employee DataFrame:**")
-            st.dataframe(emp_debug)
-
-            # Check specifically for Graham
-            graham_check = emp_debug[emp_debug[name_col].astype(str).str.contains("GRAHAM", case=False, na=False)]
-            if not graham_check.empty:
-                st.success(f"✅ GRAHAM FOUND in Excel: {graham_check[name_col].iloc[0]}")
-            else:
-                st.error("❌ GRAHAM NOT FOUND in Excel Employee List")
-
-        # Check Active column
-        if "Active" in emp_debug.columns:
-            st.write("**Active column data types and values:**")
-            st.write(f"Column data type: {emp_debug['Active'].dtype}")
-            st.write("Unique values and their types:")
-            for val in emp_debug['Active'].unique():
-                st.write(f"  '{val}' (type: {type(val).__name__})")
-
-            # Show filtering results
-            bool_filter = (emp_debug["Active"] == True)
-            str_filter = emp_debug["Active"].astype(str).str.upper().isin(["TRUE", "YES", "Y", "1"])
-            combined_filter = bool_filter | str_filter
-
-            st.write(f"Boolean filter (== True): {bool_filter.sum()} employees")
-            st.write(f"String filter (TRUE/YES/Y/1): {str_filter.sum()} employees")
-            st.write(f"Combined filter result: {combined_filter.sum()} employees")
-
-            filtered_df = emp_debug[combined_filter]
-            if name_col:
-                st.write("**Employees after Active filtering:**")
-                for name in filtered_df[name_col].astype(str).tolist():
-                    st.write(f"  - '{name}'")
-        else:
-            st.warning("No 'Active' column found")
-
-    except Exception as e:
-        st.error(f"Employee debug error: {e}")
-        import traceback
-        st.code(traceback.format_exc())
-
-    st.write("## **DEBUGGING COST CODES**")
-    try:
-        cost_debug = smart_read_data("Cost Codes", force_refresh=True)
-        st.write(f"**RAW DATA LOADED - Total rows: {len(cost_debug)}**")
-        st.write("**All columns:**", list(cost_debug.columns))
-
-        if "Active" in cost_debug.columns:
-            st.write("**Active column analysis:**")
-            st.write(f"Data type: {cost_debug['Active'].dtype}")
-            active_vals = cost_debug['Active'].value_counts()
-            st.write("Value counts:", dict(active_vals))
-
-            # Show which items are FALSE
-            false_items = cost_debug[cost_debug['Active'] == False]
-            if not false_items.empty:
-                st.write("**Items marked as FALSE:**")
-                for idx, row in false_items.iterrows():
-                    code_val = row.get('Cost Code', row.get('Code', 'Unknown'))
-                    desc_val = row.get('Description', row.get('DESC', 'No description'))
-                    st.write(f"  - {code_val} - {desc_val}")
-
-            # Test filtering
-            bool_filter = (cost_debug["Active"] == True)
-            str_filter = cost_debug["Active"].astype(str).str.upper().isin(["TRUE", "YES", "Y", "1"])
-            combined_filter = bool_filter | str_filter
-
-            st.write(f"Items that should be filtered OUT (Active=False): {len(cost_debug) - combined_filter.sum()}")
-            st.write(f"Items that should show in dropdown: {combined_filter.sum()}")
-
-            # Specific debug for the problematic cost code
-            st.write("**SPECIFIC DEBUG: 00002-170-53**")
-            specific_code = cost_debug[cost_debug['Cost Code'].astype(str).str.contains('00002-170-53', na=False)]
-            if not specific_code.empty:
-                row = specific_code.iloc[0]
-                st.write(f"Found: {row['Cost Code']} - {row['Description']}")
-                st.write(f"Active value: {row['Active']} (type: {type(row['Active']).__name__})")
-                st.write(f"Passes boolean filter: {row['Active'] == True}")
-                st.write(f"Passes string filter: {str(row['Active']).upper() in ['TRUE', 'YES', 'Y', '1']}")
-            else:
-                st.write("❌ 00002-170-53 NOT FOUND in cost codes data")
-
-    except Exception as e:
-        st.error(f"Cost codes debug error: {e}")
-        import traceback
-        st.code(traceback.format_exc())
 
 def _set_date_to_today():
     st.session_state.date_val = pd.Timestamp.today().date()
@@ -1160,7 +1018,7 @@ _legacy_spacer()
 employee_total_rows = 0
 employee_active_rows = 0
 try:
-    _emp_df_raw = _fetch_sheet_dataframe("Employee List", ("Employees",), force_refresh=False)
+    _emp_df_raw = _employee_job_assignments_df
     if isinstance(_emp_df_raw, pd.DataFrame) and not _emp_df_raw.empty:
         employee_total_rows = len(_emp_df_raw)
         _emp_df_raw = _emp_df_raw.copy()
@@ -1168,7 +1026,6 @@ try:
         selected_job_number = job_number_key_from_option(job_choice) if job_choice else ""
         _emp_df = resolve_employees_for_jobs(
             _emp_df_raw,
-            _employee_job_assignments_df,
             [selected_job_number] if selected_job_number else [],
         )
         cols = list(_emp_df.columns)
@@ -1189,7 +1046,7 @@ if not _employee_options:
     if not job_choice:
         st.info("Select a job to load its assigned employees.")
     elif employee_total_rows == 0:
-        st.warning("Employee List sheet returned 0 rows. Confirm the worksheet has data and the service account can access it.")
+        st.warning("Employee Job Assignments returned 0 rows. Confirm the worksheet has data and the service account can access it.")
     else:
         st.warning("No active employees are assigned to the selected job.")
 
@@ -1521,7 +1378,7 @@ if user_type.upper() == "ADMIN":
                 return _lookup_employee_details(employee_info, emp_name)
 
             def _get_employee_truck(emp_row):
-                """Return the truck/unit value from Employee List column F, with header fallbacks."""
+                """Return the truck/unit value from an employee assignment row."""
                 def _clean_truck_value(raw_value):
                     if raw_value is None:
                         return ""
@@ -1562,7 +1419,7 @@ if user_type.upper() == "ADMIN":
                 return ""
 
             def _get_employee_post_to_payroll(emp_row):
-                """Return the Post To Payroll value from Employee List column G, with header fallbacks."""
+                """Return the Post To Payroll value from an employee assignment row."""
                 if emp_row is None:
                     return ""
                 for col_name in ("Post To Payroll", "Post to Payroll", "Post Payroll", "Payroll", "Payroll Post"):
@@ -1581,7 +1438,7 @@ if user_type.upper() == "ADMIN":
                 return ""
 
             def _get_employee_night_shift(emp_row):
-                """Return the Night Shift value from Employee List column H, with header fallbacks."""
+                """Return the Night Shift value from an employee assignment row."""
                 if emp_row is None:
                     return ""
                 for col_name in ("Night Shift", "NightShift", "Nightshift", "Night"):
@@ -1608,7 +1465,7 @@ if user_type.upper() == "ADMIN":
                 ) is not None
 
             def _get_employee_daily_import(emp_row):
-                """Return the Daily Import flag from Employee List column N, with header fallbacks."""
+                """Return the Daily Import flag from an employee assignment row."""
                 return _get_employee_list_value(
                     emp_row,
                     ["Daily Import", "DailyImport", "Include Daily Import", "Include in Daily Import"],
@@ -1802,25 +1659,16 @@ if user_type.upper() == "ADMIN":
                                         ws.cell(row=row_idx, column=col_idx + 1, value=export_date.strftime('%Y-%m-%d'))
                                         break
 
-                            # Load employee data to determine indirect/direct status
-                            employee_df = safe_read_excel(XLSX, "Employee List")
+                            # Employee assignments are the authoritative project-specific records.
                             employee_assignments_df = safe_read_excel(XLSX, "Employee Job Assignments")
-                            employee_info = {}
-                            if not employee_df.empty:
-                                employee_df = employee_df.copy()
-                                employee_df.columns = [str(c).strip() for c in employee_df.columns]
-                                if not employee_assignments_df.empty:
-                                    employee_assignments_df = employee_assignments_df.copy()
-                                    employee_assignments_df.columns = [
-                                        str(c).strip() for c in employee_assignments_df.columns
-                                    ]
-                                daily_import_filter_enabled = (
-                                    _has_daily_import_column(employee_assignments_df)
-                                    or _has_daily_import_column(employee_df)
-                                )
-                                for _, emp_row in employee_df.iterrows():
-                                    name = str(emp_row.get("Employee Name", ""))
-                                    employee_info[name] = _employee_info_from_row(emp_row)
+                            if not employee_assignments_df.empty:
+                                employee_assignments_df = employee_assignments_df.copy()
+                                employee_assignments_df.columns = [
+                                    str(c).strip() for c in employee_assignments_df.columns
+                                ]
+                            daily_import_filter_enabled = _has_daily_import_column(
+                                employee_assignments_df
+                            )
 
                             project_employee_info_cache = {}
 
@@ -1828,7 +1676,6 @@ if user_type.upper() == "ADMIN":
                                 job_number_key = build_job_number_key(entry.get('Job Number', ''))
                                 if job_number_key not in project_employee_info_cache:
                                     resolved_employees = resolve_employees_for_jobs(
-                                        employee_df,
                                         employee_assignments_df,
                                         [job_number_key] if job_number_key else [],
                                     )
@@ -1849,7 +1696,7 @@ if user_type.upper() == "ADMIN":
                                     project_employee_info_cache.get(job_number_key, {}),
                                     employee_name,
                                 )
-                                return project_details or _employee_info_lookup(employee_info, employee_name)
+                                return project_details
 
                             # Load cost codes for descriptions
                             cost_codes_df = safe_read_excel(XLSX, "Cost Codes")
@@ -2012,26 +1859,20 @@ if user_type.upper() == "ADMIN":
                         try:
                             # Load employee data for rates (if not already loaded)
                             if '_employee_info_for_entry' not in locals():
-                                employee_df = smart_read_data("Employee List", force_refresh=False)
                                 employee_assignments_df = smart_read_data(
                                     "Employee Job Assignments",
                                     force_refresh=False,
                                 )
-                                employee_info = {}
-                                if isinstance(employee_df, pd.DataFrame) and not employee_df.empty:
-                                    employee_df = employee_df.copy()
-                                    employee_df.columns = [str(c).strip() for c in employee_df.columns]
-                                    if not isinstance(employee_assignments_df, pd.DataFrame):
-                                        employee_assignments_df = pd.DataFrame()
-                                    daily_import_filter_enabled = (
-                                        _has_daily_import_column(employee_assignments_df)
-                                        or _has_daily_import_column(employee_df)
-                                    )
-                                    for _, emp_row in employee_df.iterrows():
-                                        name = str(emp_row.get("Employee Name", "")).strip()
-                                        if not name:
-                                            continue
-                                        employee_info[name] = _employee_info_from_row(emp_row)
+                                if not isinstance(employee_assignments_df, pd.DataFrame):
+                                    employee_assignments_df = pd.DataFrame()
+                                elif not employee_assignments_df.empty:
+                                    employee_assignments_df = employee_assignments_df.copy()
+                                    employee_assignments_df.columns = [
+                                        str(c).strip() for c in employee_assignments_df.columns
+                                    ]
+                                daily_import_filter_enabled = _has_daily_import_column(
+                                    employee_assignments_df
+                                )
 
                                 project_employee_info_cache = {}
 
@@ -2039,7 +1880,6 @@ if user_type.upper() == "ADMIN":
                                     job_number_key = build_job_number_key(entry.get('Job Number', ''))
                                     if job_number_key not in project_employee_info_cache:
                                         resolved_employees = resolve_employees_for_jobs(
-                                            employee_df,
                                             employee_assignments_df,
                                             [job_number_key] if job_number_key else [],
                                         )
@@ -2064,10 +1904,7 @@ if user_type.upper() == "ADMIN":
                                         project_employee_info_cache.get(job_number_key, {}),
                                         employee_name,
                                     )
-                                    return project_details or _employee_info_lookup(
-                                        employee_info,
-                                        employee_name,
-                                    )
+                                    return project_details
 
                             unique_jobs = filtered_data['Job Number'].dropna().unique()
 

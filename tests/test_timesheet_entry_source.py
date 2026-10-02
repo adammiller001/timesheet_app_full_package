@@ -40,3 +40,12 @@ def test_timesheet_entry_logs_selected_job_number_to_time_data():
     source = source_path.read_text(encoding="utf-8")
 
     assert '"Job Number": job_num' in source
+
+
+def test_timesheet_entry_does_not_read_retired_directory_worksheets():
+    source_path = Path(__file__).resolve().parents[1] / "pages" / "10_Timesheet_Entry.py"
+    source = source_path.read_text(encoding="utf-8")
+
+    assert 'smart_read_data("Users"' not in source
+    assert '"Employee List"' not in source
+    assert '"Client Names"' not in source

@@ -1,6 +1,4 @@
 import streamlit as st
-import pandas as pd
-import time
 from app.auth_memory import (
     apply_login_email_memory,
     apply_persistent_login_memory,
@@ -17,14 +15,6 @@ from app.auth_users import (
 )
 from app.style_utils import apply_app_theme, apply_watermark
 
-try:
-    from app.integrations.google_sheets import read_timesheet_data, get_sheets_manager
-    HAVE_GOOGLE_SHEETS = True
-except Exception:
-    HAVE_GOOGLE_SHEETS = False
-    read_timesheet_data = None
-    get_sheets_manager = None
-
 # Configure page
 st.set_page_config(
     page_title="Field Reports Suite",
@@ -35,124 +25,6 @@ st.set_page_config(
 apply_app_theme()
 apply_watermark()
 
-
-EMAIL_COLUMN_CANDIDATES = ["Email", "User Email", "Email Address", "Login Email", "User's Email Address", "E-mail"]
-TYPE_COLUMN_CANDIDATES = ["User Type", "UserType", "Role", "Access Level", "Type"]
-ACTIVE_COLUMN_CANDIDATES = ["Active", "Is Active", "Enabled", "Status"]
-
-
-def _find_column(columns, candidates):
-    normalized = {str(col).strip().lower(): col for col in columns}
-    for candidate in candidates:
-        actual = normalized.get(str(candidate).strip().lower())
-        if actual:
-            return actual
-    return None
-
-
-def _is_truthy(value) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return False
-    try:
-        text_value = str(value).strip().lower()
-    except Exception:
-        return False
-    if not text_value:
-        return False
-    if text_value in {"true", "yes", "y", "1", "active", "enabled"}:
-        return True
-    try:
-        return float(text_value) == 1.0
-    except Exception:
-        return False
-
-def load_users(force_refresh=False):
-    """Load users from Google Sheets and report any issues."""
-    sheet_id = st.secrets.get("google_sheets_id", "")
-    if not (HAVE_GOOGLE_SHEETS and read_timesheet_data and sheet_id):
-        return pd.DataFrame(), "Google Sheets integration is not configured."
-
-    manager = get_sheets_manager()
-    if force_refresh:
-        if hasattr(manager, "_data_cache"):
-            manager._data_cache.pop("Users", None)  # type: ignore[attr-defined]
-        if hasattr(manager, "spreadsheet"):
-            manager.spreadsheet = None
-
-    worksheet, actual_title = manager.find_worksheet(["Users", "User"], sheet_id)
-    if not actual_title:
-        return pd.DataFrame(), "Users worksheet not found in Google Sheets."
-
-    try:
-        users_df = manager.read_worksheet(actual_title, sheet_id, force_refresh=force_refresh)
-        if users_df.empty:
-            return pd.DataFrame(), f"Google Sheets worksheet '{actual_title}' is empty."
-        users_df = users_df.copy()
-        users_df.columns = [str(col).strip() for col in users_df.columns]
-        active_col = _find_column(users_df.columns, ACTIVE_COLUMN_CANDIDATES)
-        if active_col and active_col in users_df.columns:
-            users_df = users_df[users_df[active_col].apply(_is_truthy)].copy()
-        users_df = users_df.reset_index(drop=True)
-        if users_df.empty:
-            return pd.DataFrame(), "No active users found in Users worksheet."
-        return users_df, None
-    except Exception as exc:
-        return pd.DataFrame(), f"Google Sheets error: {exc}"
-
-def authenticate_user(email, force_refresh=False):
-    """Check if user email exists in Users worksheet and return user type"""
-    users_df, error = load_users(force_refresh=force_refresh)
-    if error:
-        message = str(error)
-        if "not configured" in message.lower():
-            st.warning("Google Sheets integration is not configured; granting temporary admin access.")
-            return True, "Admin", None
-        return False, "User", error
-
-    if users_df.empty:
-        return False, "User", "No users found in worksheet"
-
-    # Look for email in various possible column names
-    email_col = _find_column(users_df.columns, EMAIL_COLUMN_CANDIDATES)
-    if not email_col:
-        return False, "User", f"Email column not found. Available columns: {list(users_df.columns)}"
-
-    # Check if email exists
-    user_row = users_df[users_df[email_col].astype(str).str.strip().str.lower() == email.lower()]
-    if user_row.empty:
-        return False, "User", "Email not found in users list"
-
-    # Ensure the user is marked active
-    active_col = _find_column(users_df.columns, ACTIVE_COLUMN_CANDIDATES)
-    if active_col and active_col in users_df.columns:
-        active_value = user_row.iloc[0].get(active_col)
-        if not _is_truthy(active_value):
-            return False, "User", "User is marked inactive."
-
-    normalized_columns = {str(col).strip().lower(): col for col in users_df.columns}
-    raw_user_type = "User"  # Default
-    for candidate in TYPE_COLUMN_CANDIDATES:
-        actual_col = normalized_columns.get(candidate.strip().lower())
-        if actual_col and actual_col in users_df.columns:
-            raw_user_type = users_df.loc[user_row.index, actual_col].iloc[0]
-            break
-    else:
-        if len(users_df.columns) >= 4:
-            raw_user_type = users_df.loc[user_row.index, users_df.columns[3]].iloc[0]
-
-    user_type_clean = str(raw_user_type).strip() if raw_user_type is not None else ""
-    user_type_upper = user_type_clean.upper()
-
-    if "ADMIN" in user_type_upper:
-        normalized_type = "Admin"
-    elif user_type_upper in {"USER", "STANDARD", "EMPLOYEE"}:
-        normalized_type = "User"
-    else:
-        normalized_type = user_type_clean or "User"
-
-    return True, normalized_type, None
 
 # Force clear any potentially corrupt session state
 if st.session_state.get("authenticated") and not st.session_state.get("user_email"):

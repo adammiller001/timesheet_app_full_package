@@ -111,3 +111,26 @@ def test_filter_daily_import_rows_keeps_old_behavior_when_column_missing():
     filtered = filter_daily_import_rows(day_df, employees_df)
 
     assert filtered["Name"].tolist() == ["ADAM MILLER", "TRAVIS TYCHKOWSKY"]
+
+
+def test_filter_daily_import_rows_uses_the_matching_job_assignment():
+    day_df = pd.DataFrame(
+        {
+            "Name": ["ALEX", "ALEX"],
+            "Job Number": ["100", "200"],
+        }
+    )
+    assignments_df = pd.DataFrame(
+        {
+            "Employee Name": ["ALEX", "ALEX"],
+            "Job Number": ["100", "200"],
+            "Daily Import": ["Y", ""],
+            "Active": ["TRUE", "TRUE"],
+        }
+    )
+
+    filtered = filter_daily_import_rows(day_df, assignments_df)
+
+    assert filtered[["Name", "Job Number"]].to_dict("records") == [
+        {"Name": "ALEX", "Job Number": "100"}
+    ]
