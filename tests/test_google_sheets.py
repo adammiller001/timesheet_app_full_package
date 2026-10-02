@@ -48,6 +48,38 @@ def test_batch_update_values_uses_google_values_batch_endpoint(monkeypatch):
     assert len(posted["json"]["data"]) == 2
 
 
+def test_read_worksheet_falls_back_to_direct_api_after_primary_client_failure(monkeypatch):
+    class FakeWorksheet:
+        def get_all_records(self):
+            return []
+
+        def get_all_values(self, **kwargs):
+            raise RuntimeError("temporary primary-client failure")
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"values": [["Employee Name", "Active"], ["ALEX", "TRUE"]]}
+
+    class FakeSession:
+        def get(self, url, params):
+            return FakeResponse()
+
+    manager = GoogleSheetsManager()
+    monkeypatch.setattr(
+        manager,
+        "find_worksheet",
+        lambda possible_names, spreadsheet_id: (FakeWorksheet(), "Employee Job Assignments"),
+    )
+    monkeypatch.setattr(manager, "_ensure_session", lambda: FakeSession())
+
+    result = manager.read_worksheet("Employee Job Assignments", "sheet-id")
+
+    assert result.to_dict("records") == [{"Employee Name": "ALEX", "Active": True}]
+
+
 def test_export_sheet_pdf_can_repeat_frozen_rows_and_set_margins(monkeypatch):
     captured = {}
 

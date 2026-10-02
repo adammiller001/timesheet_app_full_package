@@ -253,6 +253,10 @@ def _fetch_sheet_dataframe(primary_sheet: str, alt_names: Optional[tuple[str, ..
         except Exception as exc:
             st.warning(f"Google Sheets read error for {primary_sheet}: {exc}")
     df = smart_read_data(primary_sheet, force_refresh=force_refresh)
+    if (not isinstance(df, pd.DataFrame) or df.empty) and not force_refresh:
+        # A just-restarted Streamlit worker can briefly retain an empty cache
+        # while the Google worksheet client refreshes its tab list.
+        df = smart_read_data(primary_sheet, force_refresh=True)
     if isinstance(df, pd.DataFrame) and not df.empty:
         df = df.copy()
         df.columns = [str(c).strip() for c in df.columns]

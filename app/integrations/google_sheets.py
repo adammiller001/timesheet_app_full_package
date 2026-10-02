@@ -231,7 +231,9 @@ class GoogleSheetsManager:
             st.error(f"Worksheet '{worksheet_name}' not found")
             return pd.DataFrame()
 
-        # gspread path --------------------------------------------------
+        # Prefer gspread when available, but fall through to the direct
+        # Sheets API if that client returns an empty/transient response.
+        df = pd.DataFrame()
         if gspread is not None and hasattr(worksheet, "get_all_records"):
             try:
                 values = worksheet.get_all_values(
@@ -240,19 +242,19 @@ class GoogleSheetsManager:
                 )
                 df = _values_to_dataframe(values)
             except APIError as exc:
-                if exc.response.status_code == 429:
+                response = getattr(exc, "response", None)
+                if getattr(response, "status_code", None) == 429:
                     cache_entry = self._data_cache.get(cache_key)
                     if cache_entry:
                         st.info("Using cached Google Sheets data while rate limit resets.")
                         return cache_entry[1].copy()
-                    st.warning("Google Sheets rate limit reached while reading data. Please wait a few seconds and try again.")
-                    return pd.DataFrame()
-                st.error(f"Failed to read worksheet '{worksheet_name}': {exc}")
-                return pd.DataFrame()
-            except Exception as exc:
-                st.error(f"Failed to read worksheet '{worksheet_name}': {exc}")
-                return pd.DataFrame()
-        else:  # HTTP path ---------------------------------------------
+                    st.warning("Google Sheets rate limit reached while reading data. Trying the direct Sheets API.")
+                else:
+                    st.warning(f"Could not read worksheet '{worksheet_name}' through the primary Sheets client. Trying the direct Sheets API.")
+            except Exception:
+                st.warning(f"Could not read worksheet '{worksheet_name}' through the primary Sheets client. Trying the direct Sheets API.")
+
+        if df.empty:  # Direct HTTP path --------------------------------
             session = self._ensure_session()
             if session is None or spreadsheet_id is None:
                 return pd.DataFrame()
