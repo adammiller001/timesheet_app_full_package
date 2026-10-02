@@ -113,6 +113,23 @@ def test_filter_daily_import_rows_keeps_old_behavior_when_column_missing():
     assert filtered["Name"].tolist() == ["ADAM MILLER", "TRAVIS TYCHKOWSKY"]
 
 
+def test_historical_import_keeps_inactive_and_removed_employee_entries():
+    day_df = pd.DataFrame({
+        "Name": ["ALLAN WHITE", "ELBERT WEIBE", "REMOVED EMPLOYEE", "DAILY TIME ONLY"],
+        "Employee Number": ["15139", "70299I", "999", "123"],
+        "Job Number": ["100"] * 4,
+    })
+    assignments = pd.DataFrame({
+        "Employee Name": ["ALLAN WHITE", "ELBERT WIEBE", "DAILY TIME ONLY"],
+        "Person Number": ["15139", "70299I", "123"],
+        "Job Number": ["100"] * 3,
+        "Daily Import": ["Y", "Y", ""],
+        "Active": ["FALSE"] * 3,
+    })
+    filtered = filter_daily_import_rows(day_df, assignments)
+    assert filtered["Name"].tolist() == ["ALLAN WHITE", "ELBERT WEIBE", "REMOVED EMPLOYEE"]
+
+
 def test_filter_daily_import_rows_uses_the_matching_job_assignment():
     day_df = pd.DataFrame(
         {

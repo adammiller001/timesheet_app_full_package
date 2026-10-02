@@ -1373,7 +1373,12 @@ if user_type.upper() == "ADMIN":
 
                 return prepared_entries
 
-            def _employee_info_lookup(employee_info, emp_name):
+            def _employee_info_lookup(employee_info, emp_name, employee_number=''):
+                number_key = build_job_number_key(employee_number)
+                if number_key:
+                    details = employee_info.get(('employee_number', number_key))
+                    if details is not None:
+                        return details
                 return _lookup_employee_details(employee_info, emp_name)
 
             def _get_employee_truck(emp_row):
@@ -1659,6 +1664,7 @@ if user_type.upper() == "ADMIN":
                                     resolved_employees = resolve_employees_for_jobs(
                                         employee_assignments_df,
                                         [job_number_key] if job_number_key else [],
+                                        active_only=False,
                                     )
                                     resolved_info = {}
                                     resolved_name_col = _find_col(
@@ -1667,15 +1673,22 @@ if user_type.upper() == "ADMIN":
                                     )
                                     if resolved_name_col:
                                         for _, resolved_employee in resolved_employees.iterrows():
+                                            details = _employee_info_from_row(resolved_employee)
                                             resolved_name = str(resolved_employee.get(resolved_name_col, "")).strip()
                                             if resolved_name:
-                                                resolved_info[resolved_name] = _employee_info_from_row(resolved_employee)
+                                                resolved_info[resolved_name] = details
+                                            number_key = build_job_number_key(_get_employee_list_value(
+                                                resolved_employee, ["Person Number", "Employee Number"],
+                                            ))
+                                            if number_key:
+                                                resolved_info[('employee_number', number_key)] = details
                                     project_employee_info_cache[job_number_key] = resolved_info
 
                                 employee_name = str(entry.get('Name', '')).strip()
                                 project_details = _employee_info_lookup(
                                     project_employee_info_cache.get(job_number_key, {}),
                                     employee_name,
+                                    entry.get('Employee Number', ''),
                                 )
                                 return project_details
 
@@ -1863,6 +1876,7 @@ if user_type.upper() == "ADMIN":
                                         resolved_employees = resolve_employees_for_jobs(
                                             employee_assignments_df,
                                             [job_number_key] if job_number_key else [],
+                                            active_only=False,
                                         )
                                         resolved_info = {}
                                         resolved_name_col = _find_col(
@@ -1871,19 +1885,24 @@ if user_type.upper() == "ADMIN":
                                         )
                                         if resolved_name_col:
                                             for _, resolved_employee in resolved_employees.iterrows():
+                                                details = _employee_info_from_row(resolved_employee)
                                                 resolved_name = str(
                                                     resolved_employee.get(resolved_name_col, "")
                                                 ).strip()
                                                 if resolved_name:
-                                                    resolved_info[resolved_name] = _employee_info_from_row(
-                                                        resolved_employee
-                                                    )
+                                                    resolved_info[resolved_name] = details
+                                                number_key = build_job_number_key(_get_employee_list_value(
+                                                    resolved_employee, ["Person Number", "Employee Number"],
+                                                ))
+                                                if number_key:
+                                                    resolved_info[('employee_number', number_key)] = details
                                         project_employee_info_cache[job_number_key] = resolved_info
 
                                     employee_name = str(entry.get('Name', '')).strip()
                                     project_details = _employee_info_lookup(
                                         project_employee_info_cache.get(job_number_key, {}),
                                         employee_name,
+                                        entry.get('Employee Number', ''),
                                     )
                                     return project_details
 
@@ -1905,7 +1924,7 @@ if user_type.upper() == "ADMIN":
                                     for _, row in job_data.iterrows():
                                         # Get employee data for rates
                                         emp_info = _employee_info_for_entry(row)
-                                        if daily_import_filter_enabled and not _is_truthy(emp_info.get('daily_import', '')):
+                                        if daily_import_filter_enabled and emp_info and not _is_truthy(emp_info.get('daily_import', '')):
                                             continue
 
                                         # Helper function to clean values
@@ -1921,7 +1940,7 @@ if user_type.upper() == "ADMIN":
                                         if not night_shift:
                                             night_shift = clean_value(emp_info.get('night_shift', ''))
 
-                                        time_record_type = clean_value(emp_info.get('time_record_type', ''))
+                                        time_record_type = clean_value(emp_info.get('time_record_type', '')) or 'EMPL'
                                         post_to_payroll = clean_value(emp_info.get('post_to_payroll', ''))
 
                                         rate_cell, subsistence_rate_cell = build_daily_import_rate_cells(

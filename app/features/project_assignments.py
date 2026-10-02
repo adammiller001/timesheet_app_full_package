@@ -161,8 +161,10 @@ def resolve_employees_for_jobs(
     assignments_df: pd.DataFrame,
     job_numbers: Iterable[str],
     shift: str | None = None,
+    *,
+    active_only: bool = True,
 ) -> pd.DataFrame:
-    """Return active, project-specific employee assignment rows."""
+    """Resolve project employees, optionally including inactive historical records."""
     if not isinstance(assignments_df, pd.DataFrame):
         return pd.DataFrame()
 
@@ -174,7 +176,9 @@ def resolve_employees_for_jobs(
     if not selected_keys:
         return assignments_df.iloc[0:0].copy()
 
-    assignments = _rows_with_job_numbers(_active_rows(assignments_df))
+    assignments = _rows_with_job_numbers(
+        _active_rows(assignments_df) if active_only else assignments_df
+    )
     assignments = assignments[assignments["_project_job_number_key"].isin(selected_keys)]
     assignments = assignments.drop(columns=["_project_job_number_key"], errors="ignore")
     return _filter_employee_shift(assignments, shift)

@@ -40,7 +40,7 @@ def _find_column(df: pd.DataFrame, candidates: tuple[str, ...] | list[str]):
 
 
 def filter_daily_import_rows(day_df: pd.DataFrame, employees_df: pd.DataFrame) -> pd.DataFrame:
-    """Keep rows whose matching project assignment is marked for Daily Import."""
+    """Apply Daily Import preferences without dropping inactive historical entries."""
     if day_df is None or day_df.empty or employees_df is None or employees_df.empty:
         return day_df
 
@@ -59,39 +59,34 @@ def filter_daily_import_rows(day_df: pd.DataFrame, employees_df: pd.DataFrame) -
     if not name_col:
         return day_df.iloc[0:0].copy()
 
-    active_col = _find_column(employees, ("Active", "Is Active", "Enabled"))
     job_col = _find_column(employees, ("Job Number", "JOB #", "Job #", "Job"))
+    number_col = _find_column(employees, ("Person Number", "Employee Number", "emp_num"))
     if "Name" not in day_df.columns:
         return day_df.iloc[0:0].copy()
 
-    included_keys = set()
-    included_names = set()
+    preferences = {}
+    match_jobs = job_col is not None and "Job Number" in day_df.columns
     for _, row in employees.iterrows():
-        if active_col and not _is_truthy_flag(row.get(active_col, "")):
-            continue
-        if not _is_truthy_flag(row.get(daily_import_col, "")):
-            continue
+        job_key = build_job_number_key(row.get(job_col, "")) if match_jobs else ""
+        included = _is_truthy_flag(row.get(daily_import_col, ""))
         name_key = _normalize_employee_key(row.get(name_col, ""))
-        if not name_key:
-            continue
-        included_names.add(name_key)
-        if job_col:
-            job_key = build_job_number_key(row.get(job_col, ""))
-            if job_key:
-                included_keys.add((name_key, job_key))
+        if name_key:
+            preferences[("name", name_key, job_key)] = included
+        number_key = build_job_number_key(row.get(number_col, "")) if number_col else ""
+        if number_key:
+            preferences[("number", number_key, job_key)] = included
 
-    if job_col and "Job Number" in day_df.columns:
-        mask = day_df.apply(
-            lambda row: (
-                _normalize_employee_key(row.get("Name", "")),
-                build_job_number_key(row.get("Job Number", "")),
-            ) in included_keys,
-            axis=1,
-        )
-    else:
-        mask = day_df["Name"].apply(
-            lambda value: _normalize_employee_key(value) in included_names
-        )
+    def include_entry(row):
+        job_key = build_job_number_key(row.get("Job Number", "")) if match_jobs else ""
+        number_key = build_job_number_key(row.get("Employee Number", ""))
+        number_match = ("number", number_key, job_key)
+        if number_key and number_match in preferences:
+            return preferences[number_match]
+        name_key = _normalize_employee_key(row.get("Name", ""))
+        # A removed assignment must not silently erase saved time from an export.
+        return preferences.get(("name", name_key, job_key), True)
+
+    mask = day_df.apply(include_entry, axis=1)
     return day_df[mask].copy()
 
 

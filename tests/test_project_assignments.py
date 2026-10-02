@@ -90,6 +90,21 @@ def test_employee_sign_in_union_deduplicates_after_shift_filter():
     assert night_rows["Employee Name"].tolist() == ["ALEX", "BLAIR"]
 
 
+def test_historical_export_resolves_inactive_employees_for_matching_job_only():
+    assignments = pd.DataFrame(
+        [
+            ["10", "ALEX", "100", "Y", "FALSE"],
+            ["20", "BLAIR", "100", "", "TRUE"],
+            ["30", "CASEY", "200", "Y", "FALSE"],
+        ],
+        columns=["Person Number", "Employee Name", "Job Number", "Night Shift", "Active"],
+    )
+    assert resolve_employees_for_jobs(assignments, ["100"])["Employee Name"].tolist() == ["BLAIR"]
+    historical = resolve_employees_for_jobs(assignments, ["100"], active_only=False)
+    assert historical["Employee Name"].tolist() == ["ALEX", "BLAIR"]
+    assert historical.loc[0, "Night Shift"] == "Y"
+
+
 def test_client_assignment_shift_is_project_specific():
     assignments = pd.DataFrame(
         [["NEW OWNER", "SAM", "100", "Lead", "Night", "TRUE"]],
