@@ -33,7 +33,11 @@ ACTIVE_COLUMN_CANDIDATES = ["Active", "Is Active", "Enabled"]
 
 CORE_SHEETS = [
     ("Users", ("Users", "User")),
+    ("User Job Assignments", ("User Job Assignments", "User Jobs")),
     ("Employee List", ("Employee List", "Employees")),
+    ("Employee Job Assignments", ("Employee Job Assignments", "Employee Jobs")),
+    ("Client Names", ("Client Names", "Clients", "Client List")),
+    ("Client Job Assignments", ("Client Job Assignments", "Client Jobs")),
     ("Job Numbers", ("Job Numbers", "Jobs")),
     ("Cost Codes", ("Cost Codes", "CostCodes")),
     ("Time Data", ("Time Data", "TimeData")),

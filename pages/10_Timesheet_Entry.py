@@ -24,6 +24,16 @@ from app.exports.google_templates import (
     workbook_to_bytes,
 )
 from app.exports.timeentries_export import build_daily_import_rate_cells
+from app.features.project_assignments import (
+    build_job_key,
+    build_job_options as build_project_job_options,
+    filter_jobs_for_user,
+    is_truthy as assignment_is_truthy,
+    job_key_from_option,
+    parse_job_option,
+    resolve_clients_for_jobs,
+    resolve_employees_for_jobs,
+)
 from app.style_utils import apply_app_theme, apply_watermark
 from datetime import datetime, date, timedelta
 from typing import Optional
@@ -47,17 +57,6 @@ def apply_daily_import_data_row_style(ws, row_num: int, template_row: int = 4, m
             target.alignment = copy(source.alignment)
             target.protection = copy(source.protection)
             target.number_format = source.number_format
-
-# Try to use your helpers; fall back gracefully if not present
-try:
-    from utils_jobs import (
-        load_jobs_active,
-        build_job_options,
-        load_cost_options,
-    )
-    HAVE_UTILS = True
-except Exception:
-    HAVE_UTILS = False
 
 # Import Google Sheets integration
 try:
@@ -578,7 +577,7 @@ def _lookup_employee_details(info: dict, name: str) -> dict:
     return matches[0] if len(matches) == 1 else {}
 
 def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
-    """Fill Night Shift and rate columns from Employee List when missing."""
+    """Fill missing employee details from the matching project assignment."""
     if df is None or df.empty:
         return df
     try:
@@ -587,36 +586,50 @@ def _enrich_with_employee_details(df: pd.DataFrame) -> pd.DataFrame:
             return df
         employee_df = employee_df.copy()
         employee_df.columns = [str(c).strip() for c in employee_df.columns]
-        info = {}
-        name_col = _find_col(employee_df, ["Employee Name", "Name"]) or "Employee Name"
-        for _, emp_row in employee_df.iterrows():
-            name = str(emp_row.get(name_col, "")).strip()
-            if not name:
-                continue
-            night_val = _get_employee_list_value(emp_row, ["Night Shift", "NightShift", "Nightshift", "Night"], 7)
-            premium_val = _get_employee_list_value(emp_row, ["Premium Rate", "Premium"], 8)
-            subsistence_val = _get_employee_list_value(emp_row, ["Subsistence Rate", "Subsistence"], 9)
-            travel_val = _get_employee_list_value(emp_row, ["Travel Rate", "Travel"], 10)
-            info[name] = {
-                "night": night_val,
-                "premium": '' if _is_blank_value(premium_val) else premium_val,
-                "subsistence": '' if _is_blank_value(subsistence_val) else subsistence_val,
-                "travel": '' if _is_blank_value(travel_val) else travel_val
-            }
-        if not info:
-            return df
+        assignments_df = smart_read_data("Employee Job Assignments", force_refresh=False)
+        if not isinstance(assignments_df, pd.DataFrame):
+            assignments_df = pd.DataFrame()
+
         df = df.copy()
+        project_lookups: dict[str, dict[str, pd.Series]] = {}
         for idx, row in df.iterrows():
             name = str(row.get("Name", "")).strip()
             if not name:
                 continue
-            details = _lookup_employee_details(info, name)
-            if not details:
+            job_key = build_job_key(row.get("Job Number", ""), row.get("Job Area", ""))
+            if job_key not in project_lookups:
+                project_employees = resolve_employees_for_jobs(
+                    employee_df,
+                    assignments_df,
+                    [job_key] if job_key else [],
+                )
+                project_name_col = _find_col(project_employees, ["Employee Name", "Name", "Employee"])
+                project_lookups[job_key] = {
+                    _normalize_employee_key(employee.get(project_name_col, "")): employee
+                    for _, employee in project_employees.iterrows()
+                    if project_name_col and _normalize_employee_key(employee.get(project_name_col, ""))
+                }
+            employee = project_lookups.get(job_key, {}).get(_normalize_employee_key(name))
+            if employee is None:
                 continue
-            df.at[idx, "Night Shift"] = details.get("night", "") or ""
-            df.at[idx, "Premium Rate"] = details.get("premium", "")
-            df.at[idx, "Subsistence Rate"] = details.get("subsistence", "")
-            df.at[idx, "Travel Rate"] = details.get("travel", "")
+
+            details = {
+                "Trade Class": _get_employee_list_value(employee, ["Override Trade Class", "Trade Class"], 4),
+                "Employee Number": _get_employee_list_value(employee, ["Person Number", "Employee Number"], 1),
+                "Night Shift": _get_employee_list_value(employee, ["Night Shift", "NightShift", "Night"], 7),
+                "Premium Rate": _get_employee_list_value(employee, ["Premium Rate", "Premium"], 8),
+                "Subsistence Rate": _get_employee_list_value(employee, ["Subsistence Rate", "Subsistence"], 9),
+                "Travel Rate": _get_employee_list_value(employee, ["Travel Rate", "Travel"], 10),
+                "Indirect": (
+                    _get_employee_list_value(employee, ["Indirect / Direct", "Indirect Direct"], 3).upper()
+                    == "INDIRECT"
+                ),
+            }
+            for target_column, value in details.items():
+                if target_column not in df.columns:
+                    df[target_column] = ""
+                if _is_blank_value(df.at[idx, target_column]):
+                    df.at[idx, target_column] = value
         return df
     except Exception:
         return df
@@ -725,8 +738,36 @@ def _inclusive_date_range(start_date: date, end_date: date) -> list[date]:
     return [start_date + timedelta(days=offset) for offset in range(days + 1)]
 
 
+_project_jobs_df = _fetch_sheet_dataframe("Job Numbers", ("Jobs",), force_refresh=False)
+_user_job_assignments_df = _fetch_sheet_dataframe(
+    "User Job Assignments",
+    ("User Jobs", "User Project Assignments"),
+    force_refresh=False,
+)
+_employee_job_assignments_df = _fetch_sheet_dataframe(
+    "Employee Job Assignments",
+    ("Employee Jobs", "Employee Project Assignments"),
+    force_refresh=False,
+)
+_client_job_assignments_df = _fetch_sheet_dataframe(
+    "Client Job Assignments",
+    ("Client Jobs", "Client Project Assignments"),
+    force_refresh=False,
+)
+_accessible_jobs_df = filter_jobs_for_user(_project_jobs_df, _user_job_assignments_df, user)
+job_options = build_project_job_options(_accessible_jobs_df)
+job_total_rows = len(_project_jobs_df) if isinstance(_project_jobs_df, pd.DataFrame) else 0
+
+
 st.markdown("#### Sign In Sheets")
-sign_in_cols = st.columns([0.9, 0.9, 1.1, 1.1, 2.2])
+sign_in_job_choices = st.multiselect(
+    "Jobs to include",
+    options=job_options,
+    default=[],
+    placeholder="Select one or more jobs...",
+    key="sign_in_job_choices",
+)
+sign_in_cols = st.columns([0.9, 0.9, 1.1, 1.1])
 with sign_in_cols[0]:
     sign_in_start_date = st.date_input(
         "Start Date",
@@ -743,10 +784,20 @@ with sign_in_cols[1]:
     )
 with sign_in_cols[2]:
     st.markdown("<div style='height: 1.65rem;'></div>", unsafe_allow_html=True)
-    print_sign_in_days_clicked = st.button("Print Sign In Sheet Days", type="secondary", use_container_width=True)
+    print_sign_in_days_clicked = st.button(
+        "Print Sign In Sheet Days",
+        type="secondary",
+        use_container_width=True,
+        disabled=not sign_in_job_choices,
+    )
 with sign_in_cols[3]:
     st.markdown("<div style='height: 1.65rem;'></div>", unsafe_allow_html=True)
-    print_sign_in_nights_clicked = st.button("Print Sign In Sheet Nights", type="secondary", use_container_width=True)
+    print_sign_in_nights_clicked = st.button(
+        "Print Sign In Sheet Nights",
+        type="secondary",
+        use_container_width=True,
+        disabled=not sign_in_job_choices,
+    )
 
 sign_in_shift = "day" if print_sign_in_days_clicked else "night" if print_sign_in_nights_clicked else None
 if sign_in_shift:
@@ -757,8 +808,31 @@ if sign_in_shift:
         shift_label = "Day" if sign_in_shift == "day" else "Night"
         with st.spinner(f"Preparing {shift_label.lower()} shift sign in sheets for printing..."):
             try:
-                sign_in_employees = _fetch_sheet_dataframe("Employee List", ("Employees",), force_refresh=True)
-                sign_in_clients = _fetch_sheet_dataframe("Client Names", ("Clients", "Client List"), force_refresh=True)
+                selected_job_keys = [job_key_from_option(option) for option in sign_in_job_choices]
+                employee_list = _fetch_sheet_dataframe("Employee List", ("Employees",), force_refresh=True)
+                employee_assignments = _fetch_sheet_dataframe(
+                    "Employee Job Assignments",
+                    ("Employee Jobs", "Employee Project Assignments"),
+                    force_refresh=True,
+                )
+                client_list = _fetch_sheet_dataframe("Client Names", ("Clients", "Client List"), force_refresh=True)
+                client_assignments = _fetch_sheet_dataframe(
+                    "Client Job Assignments",
+                    ("Client Jobs", "Client Project Assignments"),
+                    force_refresh=True,
+                )
+                sign_in_employees = resolve_employees_for_jobs(
+                    employee_list,
+                    employee_assignments,
+                    selected_job_keys,
+                    shift=sign_in_shift,
+                )
+                sign_in_clients = resolve_clients_for_jobs(
+                    client_list,
+                    client_assignments,
+                    selected_job_keys,
+                    shift=sign_in_shift,
+                )
                 sign_in_pdf, active_employee_count, active_client_count, sign_in_sheet_count = build_sign_in_sheet_pdf(
                     sign_in_employees,
                     sign_in_dates,
@@ -777,7 +851,8 @@ if sign_in_shift:
                 st.success(
                     f"{shift_label} shift print view ready with {sign_in_sheet_count} sheet(s) "
                     f"plus {active_employee_count} active employee(s) "
-                    f"and {active_client_count} active client(s) per sheet."
+                    f"and {active_client_count} active client(s) across "
+                    f"{len(sign_in_job_choices)} selected job(s) per sheet."
                 )
             except Exception as exc:
                 st.error(f"Could not prepare Sign In Sheet print view: {exc}")
@@ -975,54 +1050,9 @@ if "session_time_data" not in st.session_state:
         st.session_state.session_time_data = pd.DataFrame(columns=TIME_DATA_COLUMNS.copy())
 
 # --- Helper functions ---
-def _pad_area(val: object) -> str:
-    """Preserve the Job Numbers sheet area value as text."""
-    return _normalize_job_area_value(val)
-
 def _is_truthy(value) -> bool:
     """Return True if the value represents an affirmative flag."""
-    str_val = str(value).strip().upper()
-    if isinstance(value, bool):
-        return value
-    if str_val in {"TRUE", "YES", "Y", "1", "ON"}:
-        return True
-    try:
-        return float(str_val) == 1.0
-    except Exception:
-        return False
-
-
-
-def _build_job_options_local(df: pd.DataFrame):
-    """Build job options with robust column matching and padding."""
-    if df is None or df.empty:
-        return []
-    job_c = _find_col(df, [
-        "Job Number", "JOB #", "Job #", "Job", "JobNumber", "Job No", "Job_No"
-    ])
-    area_c = _find_col(df, [
-        "Area Number", "AREA #", "Area #", "AREA#", "Area", "Area No", "Job Area", "JobArea"
-    ])
-    desc_c = _find_col(df, [
-        "Description", "DESCRIPTION", "PROJECT NAME", "Project Name", "Job Description", "Description of Work"
-    ])
-    if not job_c and len(df.columns) > 0:
-        job_c = df.columns[0]
-    if not area_c and len(df.columns) > 1:
-        area_c = df.columns[1]
-    if not desc_c and len(df.columns) > 2:
-        desc_c = df.columns[2]
-    if not job_c:
-        return []
-    out = []
-    for _, row in df.iterrows():
-        j = str(row.get(job_c, "") or "").strip()
-        a = _pad_area(row.get(area_c, "")) if area_c else ""
-        d = str(row.get(desc_c, "") or "").strip() if desc_c else ""
-        if j or a or d:
-            label = f"{j} - {a} - {d}" if d else f"{j} - {a}"
-            out.append(label.strip(" -"))
-    return sorted(pd.Series(out).dropna().astype(str).unique().tolist())
+    return assignment_is_truthy(value)
 
 
 def _is_quarter_hour(value: float) -> bool:
@@ -1042,60 +1072,20 @@ def _parse_hours_input(raw_value: str) -> Optional[float]:
     if value < 0:
         return None
     return round(value, 2)
-
-
-
-
-
-
-def _load_active_job_options() -> tuple[list[str], int, int]:
-    """Load job dropdown options and report total/active row counts."""
-    total_rows = 0
-    active_rows = 0
-    try:
-        jobs_df = _fetch_sheet_dataframe("Job Numbers", ("Jobs",), force_refresh=False)
-        if isinstance(jobs_df, pd.DataFrame) and not jobs_df.empty:
-            jobs_df = jobs_df.copy()
-            total_rows = len(jobs_df)
-            cols = list(jobs_df.columns)
-            job_col = _find_col(jobs_df, [
-                "Job Number", "JOB #", "Job #", "Job", "JobNumber", "Job No", "Job_No"
-            ]) or (cols[2] if len(cols) > 2 else cols[0])
-            area_col = _find_col(jobs_df, [
-                "Area Number", "AREA #", "Area #", "AREA#", "Area", "Area No", "Job Area", "JobArea"
-            ]) or (cols[3] if len(cols) > 3 else cols[min(1, len(cols)-1)])
-            desc_col = _find_col(jobs_df, [
-                "Description", "DESCRIPTION", "PROJECT NAME", "Project Name", "Job Description", "Description of Work"
-            ]) or (cols[5] if len(cols) > 5 else cols[min(2, len(cols)-1)])
-            active_col = _find_col(jobs_df, [
-                "Active", "ACTIVE", "Is Active", "Enabled", "Status"
-            ]) or (cols[6] if len(cols) > 6 else None)
-            if active_col and active_col in jobs_df.columns:
-                mask = jobs_df[active_col].apply(_is_truthy)
-                active_rows = int(mask.sum())
-                if active_rows:
-                    jobs_df = jobs_df[mask]
-            options = []
-            for _, row in jobs_df.iterrows():
-                job = str(row.get(job_col, "") or "").strip()
-                area = _pad_area(row.get(area_col, "")) if area_col else ""
-                desc = str(row.get(desc_col, "") or "").strip() if desc_col else ""
-                if job or area or desc:
-                    label = f"{job} - {area} - {desc}" if desc else f"{job} - {area}"
-                    options.append(label.strip(' -'))
-            if options:
-                options = sorted(pd.Series(options).dropna().astype(str).unique().tolist())
-                return options, total_rows, active_rows
-    except Exception as exc:
-        st.warning(f"Could not load Job Numbers sheet: {exc}")
-    return [], total_rows, active_rows
-
-job_options, job_total_rows, job_active_rows = _load_active_job_options()
 if not job_options:
     if job_total_rows == 0:
         st.warning("Job Numbers sheet returned 0 rows. Confirm the worksheet has data and the service account can access it.")
     else:
-        st.warning(f"No active jobs found. Check the Job Numbers sheet and ensure new rows are marked active (column G). Rows fetched: {job_total_rows}, active flagged: {job_active_rows}.")
+        st.warning(
+            "No active jobs are assigned to your user. "
+            "An administrator can update the User Job Assignments worksheet."
+        )
+
+
+def _clear_employee_selection_for_job_change():
+    employee_key = f"selected_employees_{st.session_state.form_counter}"
+    st.session_state.pop(employee_key, None)
+
 
 job_choice = st.selectbox(
     "Job Number - Area Number - Description",
@@ -1103,6 +1093,7 @@ job_choice = st.selectbox(
     index=None,
     placeholder="Select a job...",
     key=f"job_choice_{st.session_state.form_counter}",
+    on_change=_clear_employee_selection_for_job_change,
 )
 _legacy_spacer()
 
@@ -1169,17 +1160,18 @@ employee_active_rows = 0
 try:
     _emp_df_raw = _fetch_sheet_dataframe("Employee List", ("Employees",), force_refresh=False)
     if isinstance(_emp_df_raw, pd.DataFrame) and not _emp_df_raw.empty:
-        _emp_df = _emp_df_raw.copy()
-        employee_total_rows = len(_emp_df)
-        _emp_df.columns = [str(c).strip() for c in _emp_df.columns]
+        employee_total_rows = len(_emp_df_raw)
+        _emp_df_raw = _emp_df_raw.copy()
+        _emp_df_raw.columns = [str(c).strip() for c in _emp_df_raw.columns]
+        selected_job_key = job_key_from_option(job_choice) if job_choice else ""
+        _emp_df = resolve_employees_for_jobs(
+            _emp_df_raw,
+            _employee_job_assignments_df,
+            [selected_job_key] if selected_job_key else [],
+        )
         cols = list(_emp_df.columns)
         name_col = _find_col(_emp_df, ["Employee Name", "Name", "Employee"]) or (cols[2] if len(cols) > 2 else cols[0])
-        active_col = _find_col(_emp_df, ["Active", "Is Active", "Enabled"])
-        if active_col and active_col in _emp_df.columns:
-            mask = _emp_df[active_col].apply(_is_truthy)
-            employee_active_rows = int(mask.sum())
-            if employee_active_rows:
-                _emp_df = _emp_df[mask]
+        employee_active_rows = len(_emp_df)
         EMP_NAME_COL = name_col
         _employee_options = sorted(_emp_df[EMP_NAME_COL].dropna().astype(str).unique().tolist())
     else:
@@ -1192,10 +1184,12 @@ except Exception:
     employee_active_rows = 0
 
 if not _employee_options:
-    if employee_total_rows == 0:
+    if not job_choice:
+        st.info("Select a job to load its assigned employees.")
+    elif employee_total_rows == 0:
         st.warning("Employee List sheet returned 0 rows. Confirm the worksheet has data and the service account can access it.")
     else:
-        st.warning(f"No active employees available. Rows fetched: {employee_total_rows}, active flagged: {employee_active_rows}.")
+        st.warning("No active employees are assigned to the selected job.")
 
 selected_employees = st.multiselect(
     "Employees",
@@ -1203,6 +1197,7 @@ selected_employees = st.multiselect(
     default=[],
     placeholder="Select one or more employees...",
     key=f"selected_employees_{st.session_state.form_counter}",
+    disabled=not job_choice,
 )
 _legacy_spacer()
 
@@ -1278,11 +1273,7 @@ _legacy_spacer()
 
 def _parse_job(choice: str):
     """Parse job choice into job number, area, and description"""
-    if not choice:
-        return "", "", ""
-    parts = choice.split(" - ", 2)
-    parts += [""] * (3 - len(parts))
-    return parts[0], parts[1], parts[2]
+    return parse_job_option(choice)
 
 # --- Add line ---
 hours_valid = rt_hours_valid and ot_hours_valid
@@ -1622,7 +1613,39 @@ if user_type.upper() == "ADMIN":
                     13,
                 )
 
-            def _write_employee_to_daily_time(ws, emp_entries, row_num, employee_info, cost_code_descriptions):
+            def _employee_info_from_row(emp_row):
+                if emp_row is None:
+                    return {}
+                subsistence_rate = _get_employee_list_value(emp_row, ["Subsistence Rate", "Subsistence"], 9)
+                return {
+                    'indirect': _get_employee_list_value(
+                        emp_row,
+                        ["Indirect / Direct", "Indirect Direct"],
+                        3,
+                    ).strip().upper() == "INDIRECT",
+                    'override_trade_class': _get_employee_list_value(
+                        emp_row,
+                        ["Override Trade Class", "Trade Class"],
+                        4,
+                    ),
+                    'truck': _get_employee_truck(emp_row),
+                    'premium_rate': _get_employee_list_value(emp_row, ["Premium Rate", "Premium"], 8),
+                    'subsistence_rate': subsistence_rate,
+                    'subsistence': subsistence_rate,
+                    'travel_rate': _get_employee_list_value(emp_row, ["Travel Rate", "Travel"], 10),
+                    'post_to_payroll': _get_employee_post_to_payroll(emp_row),
+                    'night_shift': _get_employee_night_shift(emp_row),
+                    'time_record_type': _get_employee_list_value(emp_row, ["Time Record Type"], 0),
+                    'daily_import': _get_employee_daily_import(emp_row),
+                }
+
+            def _write_employee_to_daily_time(
+                ws,
+                emp_entries,
+                row_num,
+                employee_info_for_entry,
+                cost_code_descriptions,
+            ):
                 """Write employee data to specific row in Daily Time template"""
                 if not emp_entries:
                     return 0
@@ -1641,15 +1664,20 @@ if user_type.upper() == "ADMIN":
                 emp_name = str(emp_entries[0].get('Name', ''))
 
                 # Base employee info (columns A-D)
-                emp_info = _employee_info_lookup(employee_info, emp_name)
+                emp_info = employee_info_for_entry(emp_entries[0])
                 trade_class = str(emp_entries[0].get('Trade Class', '') or emp_info.get('override_trade_class', '') or '')
                 ws.cell(row=row_num, column=1, value=emp_name)
                 ws.cell(row=row_num, column=2, value=trade_class)
                 _write_truck_cell(row_num, emp_info.get('truck', ''))
 
                 rate_values = []
-                for key in ('premium_rate', 'subsistence_rate', 'travel_rate'):
-                    raw_val = emp_info.get(key, '')
+                entry_rate_columns = (
+                    ('Premium Rate', 'premium_rate'),
+                    ('Subsistence Rate', 'subsistence_rate'),
+                    ('Travel Rate', 'travel_rate'),
+                )
+                for entry_column, info_key in entry_rate_columns:
+                    raw_val = emp_entries[0].get(entry_column, '') or emp_info.get(info_key, '')
                     if raw_val is None:
                         raw_val = ''
                     val = str(raw_val).strip()
@@ -1774,24 +1802,55 @@ if user_type.upper() == "ADMIN":
 
                             # Load employee data to determine indirect/direct status
                             employee_df = safe_read_excel(XLSX, "Employee List")
+                            employee_assignments_df = safe_read_excel(XLSX, "Employee Job Assignments")
                             employee_info = {}
                             if not employee_df.empty:
                                 employee_df = employee_df.copy()
                                 employee_df.columns = [str(c).strip() for c in employee_df.columns]
-                                daily_import_filter_enabled = _has_daily_import_column(employee_df)
+                                if not employee_assignments_df.empty:
+                                    employee_assignments_df = employee_assignments_df.copy()
+                                    employee_assignments_df.columns = [
+                                        str(c).strip() for c in employee_assignments_df.columns
+                                    ]
+                                daily_import_filter_enabled = (
+                                    _has_daily_import_column(employee_assignments_df)
+                                    or _has_daily_import_column(employee_df)
+                                )
                                 for _, emp_row in employee_df.iterrows():
                                     name = str(emp_row.get("Employee Name", ""))
-                                    employee_info[name] = {
-                                        'indirect': str(emp_row.get("Indirect / Direct", "")).strip().upper() == "INDIRECT",
-                                        'override_trade_class': str(emp_row.get("Override Trade Class", "") or ""),
-                                        'truck': _get_employee_truck(emp_row),
-                                        'premium_rate': _get_employee_list_value(emp_row, ["Premium Rate", "Premium"], 8),
-                                        'subsistence_rate': _get_employee_list_value(emp_row, ["Subsistence Rate", "Subsistence"], 9),
-                                        'travel_rate': _get_employee_list_value(emp_row, ["Travel Rate", "Travel"], 10),
-                                        'post_to_payroll': _get_employee_post_to_payroll(emp_row),
-                                        'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip(),
-                                        'daily_import': _get_employee_daily_import(emp_row),
-                                    }
+                                    employee_info[name] = _employee_info_from_row(emp_row)
+
+                            project_employee_info_cache = {}
+
+                            def _employee_info_for_entry(entry):
+                                job_key = build_job_key(
+                                    entry.get('Job Number', ''),
+                                    entry.get('Job Area', ''),
+                                )
+                                if job_key not in project_employee_info_cache:
+                                    resolved_employees = resolve_employees_for_jobs(
+                                        employee_df,
+                                        employee_assignments_df,
+                                        [job_key] if job_key else [],
+                                    )
+                                    resolved_info = {}
+                                    resolved_name_col = _find_col(
+                                        resolved_employees,
+                                        ["Employee Name", "Name", "Employee"],
+                                    )
+                                    if resolved_name_col:
+                                        for _, resolved_employee in resolved_employees.iterrows():
+                                            resolved_name = str(resolved_employee.get(resolved_name_col, "")).strip()
+                                            if resolved_name:
+                                                resolved_info[resolved_name] = _employee_info_from_row(resolved_employee)
+                                    project_employee_info_cache[job_key] = resolved_info
+
+                                employee_name = str(entry.get('Name', '')).strip()
+                                project_details = _employee_info_lookup(
+                                    project_employee_info_cache.get(job_key, {}),
+                                    employee_name,
+                                )
+                                return project_details or _employee_info_lookup(employee_info, employee_name)
 
                             # Load cost codes for descriptions
                             cost_codes_df = safe_read_excel(XLSX, "Cost Codes")
@@ -1816,7 +1875,12 @@ if user_type.upper() == "ADMIN":
                             direct_employees = []
 
                             for emp_name, entries in employee_groups.items():
-                                is_indirect = _employee_info_lookup(employee_info, emp_name).get('indirect', False)
+                                entry_indirect = entries[0].get('Indirect', '') if entries else ''
+                                is_indirect = (
+                                    _is_truthy(entry_indirect)
+                                    if not _is_blank_value(entry_indirect)
+                                    else _employee_info_for_entry(entries[0]).get('indirect', False)
+                                )
                                 prepared_entries = _prepare_employee_entries(entries)
 
                                 employee_data = {
@@ -1839,7 +1903,13 @@ if user_type.upper() == "ADMIN":
                             for emp_data in indirect_employees:
                                 if current_row > 30:
                                     break
-                                rows_used = _write_employee_to_daily_time(ws, emp_data['entries'], current_row, employee_info, cost_code_descriptions)
+                                rows_used = _write_employee_to_daily_time(
+                                    ws,
+                                    emp_data['entries'],
+                                    current_row,
+                                    _employee_info_for_entry,
+                                    cost_code_descriptions,
+                                )
                                 for i in range(rows_used):
                                     used_indirect_rows.append(current_row + i)
                                 current_row += rows_used
@@ -1850,7 +1920,13 @@ if user_type.upper() == "ADMIN":
                             for emp_data in direct_employees:
                                 if current_row > 261:
                                     break
-                                rows_used = _write_employee_to_daily_time(ws, emp_data['entries'], current_row, employee_info, cost_code_descriptions)
+                                rows_used = _write_employee_to_daily_time(
+                                    ws,
+                                    emp_data['entries'],
+                                    current_row,
+                                    _employee_info_for_entry,
+                                    cost_code_descriptions,
+                                )
                                 for i in range(rows_used):
                                     used_direct_rows.append(current_row + i)
                                 current_row += rows_used
@@ -1936,28 +2012,66 @@ if user_type.upper() == "ADMIN":
                         
                         try:
                             # Load employee data for rates (if not already loaded)
-                            if 'employee_info' not in locals():
+                            if '_employee_info_for_entry' not in locals():
                                 employee_df = smart_read_data("Employee List", force_refresh=False)
+                                employee_assignments_df = smart_read_data(
+                                    "Employee Job Assignments",
+                                    force_refresh=False,
+                                )
                                 employee_info = {}
                                 if isinstance(employee_df, pd.DataFrame) and not employee_df.empty:
                                     employee_df = employee_df.copy()
                                     employee_df.columns = [str(c).strip() for c in employee_df.columns]
-                                    daily_import_filter_enabled = _has_daily_import_column(employee_df)
+                                    if not isinstance(employee_assignments_df, pd.DataFrame):
+                                        employee_assignments_df = pd.DataFrame()
+                                    daily_import_filter_enabled = (
+                                        _has_daily_import_column(employee_assignments_df)
+                                        or _has_daily_import_column(employee_df)
+                                    )
                                     for _, emp_row in employee_df.iterrows():
                                         name = str(emp_row.get("Employee Name", "")).strip()
                                         if not name:
                                             continue
-                                        employee_info[name] = {
-                                            'indirect': str(emp_row.get("Indirect / Direct", "")).strip().upper() == "INDIRECT",
-                                            'truck': _get_employee_truck(emp_row),
-                                            'premium_rate': _get_employee_list_value(emp_row, ["Premium Rate", "Premium"], 8),
-                                            'subsistence': _get_employee_list_value(emp_row, ["Subsistence Rate", "Subsistence"], 9),
-                                            'travel_rate': _get_employee_list_value(emp_row, ["Travel Rate", "Travel"], 10),
-                                            'post_to_payroll': _get_employee_post_to_payroll(emp_row),
-                                            'night_shift': _get_employee_night_shift(emp_row),
-                                            'time_record_type': str(emp_row.get("Time Record Type", "") or "").strip(),
-                                            'daily_import': _get_employee_daily_import(emp_row),
-                                        }
+                                        employee_info[name] = _employee_info_from_row(emp_row)
+
+                                project_employee_info_cache = {}
+
+                                def _employee_info_for_entry(entry):
+                                    job_key = build_job_key(
+                                        entry.get('Job Number', ''),
+                                        entry.get('Job Area', ''),
+                                    )
+                                    if job_key not in project_employee_info_cache:
+                                        resolved_employees = resolve_employees_for_jobs(
+                                            employee_df,
+                                            employee_assignments_df,
+                                            [job_key] if job_key else [],
+                                        )
+                                        resolved_info = {}
+                                        resolved_name_col = _find_col(
+                                            resolved_employees,
+                                            ["Employee Name", "Name", "Employee"],
+                                        )
+                                        if resolved_name_col:
+                                            for _, resolved_employee in resolved_employees.iterrows():
+                                                resolved_name = str(
+                                                    resolved_employee.get(resolved_name_col, "")
+                                                ).strip()
+                                                if resolved_name:
+                                                    resolved_info[resolved_name] = _employee_info_from_row(
+                                                        resolved_employee
+                                                    )
+                                        project_employee_info_cache[job_key] = resolved_info
+
+                                    employee_name = str(entry.get('Name', '')).strip()
+                                    project_details = _employee_info_lookup(
+                                        project_employee_info_cache.get(job_key, {}),
+                                        employee_name,
+                                    )
+                                    return project_details or _employee_info_lookup(
+                                        employee_info,
+                                        employee_name,
+                                    )
 
                             unique_jobs = filtered_data['Job Number'].dropna().unique()
 
@@ -1976,8 +2090,7 @@ if user_type.upper() == "ADMIN":
                                     wrote_import_rows = False
                                     for _, row in job_data.iterrows():
                                         # Get employee data for rates
-                                        emp_name = str(row.get('Name', ''))
-                                        emp_info = _employee_info_lookup(employee_info, emp_name)
+                                        emp_info = _employee_info_for_entry(row)
                                         if daily_import_filter_enabled and not _is_truthy(emp_info.get('daily_import', '')):
                                             continue
 
@@ -1987,12 +2100,12 @@ if user_type.upper() == "ADMIN":
                                                 return ''
                                             return str(val)
 
-                                        premium_rate = clean_value(emp_info.get('premium_rate', '')) or clean_value(row.get('Premium Rate', ''))
-                                        subsistence_rate = clean_value(emp_info.get('subsistence', '')) or clean_value(row.get('Subsistence Rate', ''))
-                                        travel_rate = clean_value(emp_info.get('travel_rate', '')) or clean_value(row.get('Travel Rate', ''))
-                                        night_shift = clean_value(emp_info.get('night_shift', ''))
+                                        premium_rate = clean_value(row.get('Premium Rate', '')) or clean_value(emp_info.get('premium_rate', ''))
+                                        subsistence_rate = clean_value(row.get('Subsistence Rate', '')) or clean_value(emp_info.get('subsistence', ''))
+                                        travel_rate = clean_value(row.get('Travel Rate', '')) or clean_value(emp_info.get('travel_rate', ''))
+                                        night_shift = clean_value(row.get('Night Shift', ''))
                                         if not night_shift:
-                                            night_shift = clean_value(row.get('Night Shift', ''))
+                                            night_shift = clean_value(emp_info.get('night_shift', ''))
 
                                         time_record_type = clean_value(emp_info.get('time_record_type', ''))
                                         post_to_payroll = clean_value(emp_info.get('post_to_payroll', ''))
