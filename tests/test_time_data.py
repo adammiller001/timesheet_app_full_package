@@ -33,4 +33,5 @@ def test_prepare_time_data_keeps_job_area_text_exact():
 
     prepared = prepare_time_data_dataframe(df)
 
+    assert prepared.loc[0, "Job Number"] == "2624138043"
     assert prepared.loc[0, "Job Area"] == "002"

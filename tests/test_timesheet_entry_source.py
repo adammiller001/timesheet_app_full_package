@@ -31,3 +31,10 @@ def test_timesheet_entry_uses_project_assignments_for_jobs_employees_and_sign_in
     assert "resolve_clients_for_jobs(" in source
     assert "emp_info = _employee_info_for_entry(row)" in source
     assert "on_change=_clear_employee_selection_for_job_change" in source
+
+
+def test_timesheet_entry_logs_selected_job_number_to_time_data():
+    source_path = Path(__file__).resolve().parents[1] / "pages" / "10_Timesheet_Entry.py"
+    source = source_path.read_text(encoding="utf-8")
+
+    assert '"Job Number": job_num' in source
