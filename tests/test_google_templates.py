@@ -230,6 +230,7 @@ def test_sign_in_sheet_pdf_batches_google_updates(monkeypatch):
         [date(2026, 8, 1), date(2026, 8, 2)],
         clients,
         "sheet-id",
+        job_numbers=["2624068019"],
     )
 
     assert pdf.startswith(b"%PDF")
@@ -245,7 +246,9 @@ def test_sign_in_sheet_pdf_batches_google_updates(monkeypatch):
     assert len(repeat_header_requests) == 2
     assert repeat_header_requests[0]["updateSheetProperties"]["properties"]["gridProperties"]["frozenRowCount"] == 10
     assert len(fake_manager.batch_value_calls) == 1
-    assert len(fake_manager.batch_value_calls[0]) == 6
+    assert len(fake_manager.batch_value_calls[0]) == 8
+    project_number_updates = [item for item in fake_manager.batch_value_calls[0] if item["range"].endswith("!B6")]
+    assert [item["values"] for item in project_number_updates] == [[["'2624068019"]], [["'2624068019"]]]
     assert fake_manager.single_value_calls == []
     assert fake_manager.exported_sheet_ids == [
         (201, True, {"top": 0.25, "bottom": 0.25, "left": 0.25, "right": 0.25}),
@@ -262,9 +265,12 @@ def test_pdf_image_print_html_renders_images_and_calls_print():
     pdf_bytes = document.tobytes()
     document.close()
 
-    html = build_pdf_image_print_html(pdf_bytes, auto_print=True)
+    title = "Sign In Sheet - 2624068019 - 2026-11-06"
+    html = build_pdf_image_print_html(pdf_bytes, auto_print=True, title=title)
 
     assert "data:image/png;base64," in html
     assert "window.print()" in html
-    assert "application/pdf" not in html
+    assert f"<title>{title}</title>" in html
+    assert f'download="{title}.pdf"' in html
+    assert "data:application/pdf;base64," in html
     assert "Open PDF" not in html

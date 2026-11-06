@@ -4,6 +4,7 @@ import io
 import base64
 import time
 from datetime import date, datetime
+from html import escape
 from typing import Iterable
 
 import pandas as pd
@@ -153,11 +154,11 @@ def _sign_in_employee_rows(employees_df: pd.DataFrame, shift: str | None = None)
     employees_df = employees_df.copy()
     employees_df.columns = [str(col).strip() for col in employees_df.columns]
 
-    company_col = _find_column(employees_df, ("Company Name", "Company", "Employer"), 11)
-    name_col = _find_column(employees_df, ("Employee Name", "Name", "Employee"), 2)
-    craft_col = _find_column(employees_df, ("Craft / Certification", "Craft Certification", "Craft", "Certification"), 12)
-    active_col = _find_column(employees_df, ("Active", "Is Active", "Enabled"), 14)
-    night_col = _find_column(employees_df, ("Night Shift", "NightShift", "Nights"), 7)
+    company_col = _find_column(employees_df, ("Company Name", "Company", "Employer"))
+    name_col = _find_column(employees_df, ("Employee Name", "Name", "Employee"))
+    craft_col = _find_column(employees_df, ("Craft / Certification", "Craft Certification", "Craft", "Certification"))
+    active_col = _find_column(employees_df, ("Active", "Is Active", "Enabled"))
+    night_col = _find_column(employees_df, ("Night Shift", "NightShift", "Nights"))
 
     if active_col:
         employees_df = employees_df[employees_df[active_col].apply(_is_truthy)]
@@ -191,12 +192,11 @@ def _sign_in_client_rows(clients_df: pd.DataFrame, shift: str | None = None) -> 
     clients_df = clients_df.copy()
     clients_df.columns = [str(col).strip() for col in clients_df.columns]
 
-    company_col = _find_column(clients_df, ("COMPANY", "Company Name", "Company", "Client Company"), 0)
-    name_col = _find_column(clients_df, ("PERSON NAME", "Person Name", "Client Name", "Name"), 1)
-    cert_col = _find_column(clients_df, ("CERTIFICATION", "Certification", "Craft / Certification", "Craft"), 2)
+    company_col = _find_column(clients_df, ("COMPANY", "Company Name", "Company", "Client Company"))
+    name_col = _find_column(clients_df, ("PERSON NAME", "Person Name", "Client Name", "Name"))
+    cert_col = _find_column(clients_df, ("CERTIFICATION", "Certification", "Craft / Certification", "Craft"))
     shift_col = _find_column(clients_df, ("SHIFT", "Shift", "Day / Night", "Day Night"))
-    active_fallback = 4 if shift_col and len(clients_df.columns) > 4 else 3
-    active_col = _find_column(clients_df, ("Active", "Is Active", "Enabled"), active_fallback)
+    active_col = _find_column(clients_df, ("Active", "Is Active", "Enabled"))
 
     if active_col:
         clients_df = clients_df[clients_df[active_col].apply(_is_truthy)]
@@ -240,7 +240,7 @@ def _find_sheet_id(metadata: dict, title: str) -> int:
     raise RuntimeError(f"Worksheet '{title}' not found. Found: {found}")
 
 
-def _merge_pdf_bytes(pdf_parts: list[bytes]) -> bytes:
+def merge_pdf_bytes(pdf_parts: list[bytes]) -> bytes:
     if not pdf_parts:
         raise RuntimeError("No sign in sheets were exported.")
     if len(pdf_parts) == 1:
@@ -261,7 +261,12 @@ def _merge_pdf_bytes(pdf_parts: list[bytes]) -> bytes:
     return out.getvalue()
 
 
-def build_pdf_image_print_html(pdf_bytes: bytes, *, auto_print: bool = True) -> str:
+def build_pdf_image_print_html(
+    pdf_bytes: bytes,
+    *,
+    auto_print: bool = True,
+    title: str = "Sign In Sheet",
+) -> str:
     """Render PDF pages as browser-printable images and open the print dialog."""
     try:
         import fitz
@@ -284,6 +289,8 @@ def build_pdf_image_print_html(pdf_bytes: bytes, *, auto_print: bool = True) -> 
         raise RuntimeError("No printable pages were found in the Sign In Sheet PDF.")
 
     pages_html = "\n".join(image_tags)
+    document_title = escape(title)
+    pdf_base64 = base64.b64encode(pdf_bytes).decode("ascii")
     auto_print_script = ""
     if auto_print:
         auto_print_script = """
@@ -296,6 +303,7 @@ def build_pdf_image_print_html(pdf_bytes: bytes, *, auto_print: bool = True) -> 
     <html>
     <head>
     <meta charset="utf-8">
+    <title>{document_title}</title>
     <style>
         body {{
             margin: 0;
@@ -373,6 +381,7 @@ def build_pdf_image_print_html(pdf_bytes: bytes, *, auto_print: bool = True) -> 
     <div class="controls">
         <span id="status">The print dialog should open automatically.</span>
         <button onclick="openPrintDialog()">Open print dialog</button>
+        <a download="{document_title}.pdf" href="data:application/pdf;base64,{pdf_base64}">Download PDF</a>
     </div>
     <main class="print-pages">
         {pages_html}
@@ -380,10 +389,22 @@ def build_pdf_image_print_html(pdf_bytes: bytes, *, auto_print: bool = True) -> 
     <script>
         const status = document.getElementById("status");
         function openPrintDialog() {{
+            let restoreTitle = () => {{}};
+            try {{
+                // Some browsers name the PDF using the enclosing tab's title.
+                const tab = window.top.document;
+                const previousTitle = tab.title;
+                tab.title = document.title;
+                restoreTitle = () => {{ tab.title = previousTitle; }};
+                window.addEventListener("afterprint", restoreTitle, {{ once: true }});
+            }} catch (error) {{
+                // Cross-origin frames can still use their own document title.
+            }}
             try {{
                 window.focus();
                 window.print();
             }} catch (error) {{
+                restoreTitle();
                 status.textContent = "Use your browser print command to print these sheets.";
             }}
         }}
@@ -400,9 +421,11 @@ def build_sign_in_sheet_pdf(
     clients_df: pd.DataFrame | None = None,
     spreadsheet_id: str | None = None,
     shift: str | None = None,
+    job_numbers: Iterable[str] | None = None,
 ) -> tuple[bytes, int, int, int]:
     """Create Google-rendered PDFs from temporary copies of the Sign In Sheet tab."""
     dates = list(sign_in_dates)
+    selected_jobs = list(dict.fromkeys(_clean_text(job) for job in (job_numbers or []) if _clean_text(job)))
     if not dates:
         raise ValueError("At least one sign in date is required.")
 
@@ -461,6 +484,12 @@ def build_sign_in_sheet_pdf(
                     "values": client_rows,
                 },
             ])
+            if selected_jobs:
+                value_updates.append({
+                    "range": f"{sheet_name}!B6",
+                    # USER_ENTERED treats an apostrophe as a text prefix, preserving the job ID.
+                    "values": [["'" + ", ".join(selected_jobs)]],
+                })
 
         batch_value_updater = getattr(manager, "batch_update_values", None)
         if callable(batch_value_updater):
@@ -550,4 +579,4 @@ def build_sign_in_sheet_pdf(
             except Exception:
                 pass
 
-    return _merge_pdf_bytes(pdf_parts), active_count, active_client_count, len(dates)
+    return merge_pdf_bytes(pdf_parts), active_count, active_client_count, len(dates)

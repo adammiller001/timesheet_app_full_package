@@ -19,6 +19,7 @@ from app.exports.browser_download import build_auto_download_html
 from app.exports.google_templates import (
     build_pdf_image_print_html,
     build_sign_in_sheet_pdf,
+    merge_pdf_bytes,
     get_google_template_workbook_bytes,
     load_template_sheet_workbook,
     workbook_to_bytes,
@@ -813,7 +814,6 @@ if sign_in_shift:
         shift_label = "Day" if sign_in_shift == "day" else "Night"
         with st.spinner(f"Preparing {shift_label.lower()} shift sign in sheets for printing..."):
             try:
-                selected_job_numbers = [build_job_number_key(option) for option in sign_in_job_choices]
                 employee_assignments = _fetch_sheet_dataframe(
                     "Employee Job Assignments",
                     ("Employee Jobs", "Employee Project Assignments"),
@@ -824,43 +824,43 @@ if sign_in_shift:
                     ("Client Jobs", "Client Project Assignments"),
                     force_refresh=True,
                 )
-                sign_in_employees = resolve_employees_for_jobs(
-                    employee_assignments,
-                    selected_job_numbers,
-                    shift=sign_in_shift,
+                pdf_parts = []
+                sign_in_sheet_count = 0
+                for job_number in sign_in_job_choices:
+                    sign_in_employees = resolve_employees_for_jobs(
+                        employee_assignments, [job_number], shift=sign_in_shift
+                    )
+                    sign_in_clients = resolve_clients_for_jobs(
+                        client_assignments, [job_number], shift=sign_in_shift
+                    )
+                    job_pdf, _, _, job_sheet_count = build_sign_in_sheet_pdf(
+                        sign_in_employees,
+                        sign_in_dates,
+                        sign_in_clients,
+                        shift=sign_in_shift,
+                        job_numbers=[job_number],
+                    )
+                    pdf_parts.append(job_pdf)
+                    sign_in_sheet_count += job_sheet_count
+
+                print_dates = sign_in_start_date.isoformat()
+                if sign_in_start_date != sign_in_end_date:
+                    print_dates += f" to {sign_in_end_date.isoformat()}"
+                job_title = ", ".join(sign_in_job_choices)
+                print_title = f"Sign In Sheet - {job_title} - {print_dates}"
+                st.session_state["sign_in_sheet_print_html"] = build_pdf_image_print_html(
+                    merge_pdf_bytes(pdf_parts), auto_print=True, title=print_title
                 )
-                sign_in_clients = resolve_clients_for_jobs(
-                    client_assignments,
-                    selected_job_numbers,
-                    shift=sign_in_shift,
-                )
-                sign_in_pdf, active_employee_count, active_client_count, sign_in_sheet_count = build_sign_in_sheet_pdf(
-                    sign_in_employees,
-                    sign_in_dates,
-                    sign_in_clients,
-                    shift=sign_in_shift,
-                )
-                st.session_state["sign_in_sheet_print_html"] = {
-                    "html": build_pdf_image_print_html(sign_in_pdf, auto_print=True),
-                    "employee_count": active_employee_count,
-                    "client_count": active_client_count,
-                    "sheet_count": sign_in_sheet_count,
-                    "shift": sign_in_shift,
-                    "start_date": sign_in_start_date.isoformat(),
-                    "end_date": sign_in_end_date.isoformat(),
-                }
                 st.success(
                     f"{shift_label} shift print view ready with {sign_in_sheet_count} sheet(s) "
-                    f"plus {active_employee_count} active employee(s) "
-                    f"and {active_client_count} active client(s) across "
-                    f"{len(sign_in_job_choices)} selected Job Number(s) per sheet."
+                    f"for {len(sign_in_job_choices)} selected job(s)."
                 )
             except Exception as exc:
                 st.error(f"Could not prepare Sign In Sheet print view: {exc}")
 
 sign_in_print = st.session_state.pop("sign_in_sheet_print_html", None)
 if sign_in_print:
-    components.html(sign_in_print["html"], height=92, scrolling=False)
+    components.html(sign_in_print, height=92, scrolling=False)
 
 _legacy_spacer()
 
